@@ -69,15 +69,14 @@ async function main() {
         })
       )}`;
 
-  // Encode BuybackVaultConfig: (taxtoken, owner, xController, xId)
-  // Note: taxtoken is auto-overridden by factory from VaultPortal's predicted address.
+  // Encode BuybackVaultConfig: (owner, xController, xId)
+  // 3 fields matching the on-chain struct (taxtoken is set by implementation.initialize, not here).
   const vaultData = AbiCoder.defaultAbiCoder().encode(
-    ["address", "address", "string", "uint128"],
+    ["address", "string", "uint128"],
     [
-      "0x0000000000000000000000000000000000000000", // taxtoken (placeholder, factory overrides)
-      wallet.address,                                 // owner (X Agent wallet, factory can be default)
-      xHandle,                                        // xController (from CLI = tweet author handle)
-      xId,                                             // xId (from CLI = tweet author numeric ID)
+      wallet.address,   // owner (X Agent wallet; 0x0 falls back to commissionRecipient)
+      xHandle,          // xController (from CLI = tweet author handle)
+      xId,              // xId (from CLI = tweet author numeric ID)
     ]
   );
 
