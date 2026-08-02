@@ -106,10 +106,16 @@ async function main() {
   // 3. Build params with 27-field ABI (selector 0x1b806220).
   //    Per source: 100% to vault (vaultBps=10000), no burn, no MEV.
   //    Other values from verified test deploy.
+  //
+  //  CRITICAL: meta MUST be ≥ 7 chars (Flap Portal FeatureDisabled check
+  //  on `bytes(params.meta).length < 7`). Test used an IPFS hash.
+  //  We use a deterministic placeholder for now; replace with real IPFS
+  //  CID before production.
+  const meta = `ipfs://flapvault/${name.toLowerCase()}-metadata-v1`;
   const params = [
     name,                                                 // 0: name
     name,                                                 // 1: symbol
-    "",                                                   // 2: meta (IPFS CID, optional)
+    meta,                                                 // 2: meta (≥7 chars required)
     1,                                                    // 3: dexThresh (1 per test)
     salt,                                                 // 4: salt
     MIGRATOR_TYPE_V2,                                     // 5: migratorType
