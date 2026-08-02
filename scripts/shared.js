@@ -77,18 +77,10 @@ export const BUYBACK_VAULT_ABI = [
 export const VAULT_PORTAL_ABI = [
   // Flap's actual NewTokenV6WithVaultParams (per docs.flap.sh):
   // - 3 strings: name, symbol, meta
-  // Actual deployed NewTokenV6WithVaultParams on Robinhood has 28 fields:
-  // - 4 strings: name, symbol, meta, xHandle (Twitter handle for vault controller)
-  // - 2 enums: dexThresh (uint8), migratorType (uint8)
-  // - bytes32 salt, address quoteToken, uint256 quoteAmt
-  // - bytes permitData, bytes32 extensionID, bytes extensionData
-  // - 2 enums: dexId (uint8), lpFeeProfile (uint8)
-  // - 12 V3 fields: buyTaxRate, sellTaxRate, totalSupply, maxWallet,
-  //                deflationBps, dividendBps, vaultBps, lpBps,
-  //                lockerDeadline, locker, hook, mevModuleV2Type
-  // - 2 addresses: mevModuleV2, vaultData
-  // Note: 100% BURN model uses deflationBps=10000; mevModuleV2=factory for MEV buyback
-  "function newTokenV6WithVault(tuple(string name, string symbol, string meta, string xHandle, uint8 dexThresh, bytes32 salt, uint8 migratorType, address quoteToken, uint256 quoteAmt, bytes permitData, bytes32 extensionID, bytes extensionData, uint8 dexId, uint8 lpFeeProfile, uint16 buyTaxRate, uint16 sellTaxRate, uint64 totalSupply, uint64 maxWallet, uint16 deflationBps, uint16 dividendBps, uint16 vaultBps, uint16 lpBps, uint256 lockerDeadline, address locker, address hook, uint8 mevModuleV2Type, address mevModuleV2, bytes vaultData) params) payable returns (address token)",
+  // Verified selector: 0x1b806220 (matches test tx 0x718960e8...e840)
+  // 27-field ABI per /dmattrenggana/flapvault src/BuybackVaultFactory.sol
+  // Source model: 100% to vault (vaultBps=10000), 75% buyback, 25% eco pool
+  "function newTokenV6WithVault(tuple(string name, string symbol, string meta, uint8 dexThresh, bytes32 salt, uint8 migratorType, address quoteToken, uint256 quoteAmt, bytes permitData, bytes32 extensionID, bytes extensionData, uint8 dexId, uint8 lpFeeProfile, uint16 buyTaxRate, uint16 sellTaxRate, uint64 totalSupply, uint64 maxWallet, uint16 deflationBps, uint16 dividendBps, uint16 vaultBps, uint16 lpBps, uint256 lockerDeadline, address locker, address hook, uint8 mevModuleV2Type, address mevModuleV2, bytes vaultData) params) payable returns (address token)",
   "event FlapTaxVaultTokenCreated(address indexed token, address indexed vault, address indexed vaultFactory, address creator, string name, string symbol, uint16 buyTaxBps, uint16 sellTaxBps)",
 ];
 

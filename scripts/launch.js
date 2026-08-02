@@ -2,16 +2,18 @@
 // Usage: node launch.js <name> [buyTaxBps=300] [sellTaxBps=300] [xHandle=""] [xId=0]
 // Example: node launch.js KOPI 300 300 mattrenggana 145621088
 //
-// The actual deployed NewTokenV6WithVaultParams on Robinhood has 28 fields,
-// NOT 27 like my earlier guess. The 4th field is `xHandle` (string, top-level)
-// and the model is "100% BURN (deflationBps=10000) + MEV buyback via factory as
-// mevModuleV2 (type=6)", not "100% to vault (vaultBps=10000)".
+// The function selector is 0x1b806220 (27-field ABI per verified test tx).
+// Reference verified-working test deploy:
+//   tx 0x718960e8...e840 → token 0xaF76...7777, vault deployed
 //
-// Reference (verified working test deploy at 0xaF76...7777):
-//   tx 0x718960e88e844d00c0273a669634326950779170f3799bff331c2f95e677e840
-//   xHandle = "mattrenggana" (4th field)
+// Source per /dmattrenggana/flapvault src/BuybackVaultFactory.sol:
+//   100% tax to vault (vaultBps=10000) — self-buyback model.
+//   75% ETH → buyback token via Portal (bonding) or V2 router (post-graduation).
+//   2/3 of buyback output → vault reserve, 1/3 → staker dividend.
+//   25% ETH → eco pool.
+//   Factory commission: 10% if tax≤1%, 20% if tax>1%.
 //
-// Token address must end in "7777" (Flap vanity suffix for TOKEN_TAXED_V3).
+// Token address must end in "7777" (Flap vanity suffix for TAXED_V3).
 // Salt is mined locally via CREATE2 prediction before submission.
 
 import {
@@ -29,7 +31,6 @@ const TOKEN_IMPL_TAXED_V3 = "0x7777C8743C88B3aff3cf262135bef2c8b2e83333";
 const VANITY_SUFFIX = "7777";
 const TOKEN_VERSION_TAXED_V3 = 6;
 const MIGRATOR_TYPE_V2 = 1;
-const DEX_ID_DEFAULT = 0; // test used 0; Flap picks best dex
 const MAX_TAX_BPS = 2000;
 
 // EIP-1167 minimal proxy pointing at TOKEN_IMPL_TAXED_V3
@@ -96,54 +97,43 @@ async function main() {
     iterations,
   });
 
-  // 2. Build vaultData (factory's BuybackVaultConfig — 3 fields: owner, ?, ?)
-  //    Test config had: owner + string("mattrenggana") + uint256(0x8ae006=9101318)
-  //    Most likely: owner, xController(handle), xId
-  //    0x8ae006 = 9101318 — could be xId or some other number
-  //    For safety, send empty vaultData for now (factory will use defaults)
+  // 2. Build vaultData (factory's BuybackVaultConfig — 3 fields: owner, xController, xId)
   const vaultData = AbiCoder.defaultAbiCoder().encode(
-    ["address", "string", "uint256"],
-    [
-      wallet.address,
-      xHandle, // empty string if no xHandle
-      xId, // 0 if no xId
-    ]
+    ["address", "string", "uint128"],
+    [wallet.address, xHandle, xId]
   );
 
-  // 3. Build params with the actual 28-field ABI (matches test deploy):
-  //    (string, string, string, string, uint8, bytes32, uint8, address, uint256,
-  //     bytes, bytes32, bytes, uint8, uint8, uint16, uint16, uint64, uint64,
-  //     uint16, uint16, uint16, uint16, uint256, address, address, uint8,
-  //     address, bytes)
+  // 3. Build params with 27-field ABI (selector 0x1b806220).
+  //    Per source: 100% to vault (vaultBps=10000), no burn, no MEV.
+  //    Other values from verified test deploy.
   const params = [
     name,                                                 // 0: name
     name,                                                 // 1: symbol
     "",                                                   // 2: meta (IPFS CID, optional)
-    xHandle,                                              // 3: xHandle (top-level!)
-    1,                                                    // 4: dexThresh (1 = test value)
-    salt,                                                 // 5: salt
-    MIGRATOR_TYPE_V2,                                     // 6: migratorType
-    "0x0000000000000000000000000000000000000000",         // 7: quoteToken (native ETH)
-    0n,                                                   // 8: quoteAmt
-    "0x",                                                 // 9: permitData
-    "0x0000000000000000000000000000000000000000000000000000000000000000", // 10: extensionID
-    "0x",                                                 // 11: extensionData
-    DEX_ID_DEFAULT,                                       // 12: dexId
-    0,                                                    // 13: lpFeeProfile
-    buyTaxBps,                                            // 14: buyTaxRate
-    sellTaxBps,                                           // 15: sellTaxRate
-    3153600000n,                                          // 16: totalSupply (3.1536B - test value)
-    2592000,                                              // 17: maxWallet (2.592M - test value)
-    10000,                                                // 18: deflationBps (100% BURN)
-    0,                                                    // 19: dividendBps
-    0,                                                    // 20: vaultBps
-    0,                                                    // 21: lpBps
-    0n,                                                   // 22: lockerDeadline
-    "0x0000000000000000000000000000000000000000",         // 23: locker
-    "0x0000000000000000000000000000000000000000",         // 24: hook
-    6,                                                    // 25: mevModuleV2Type (=6 per test)
-    factory,                                              // 26: mevModuleV2 (= factory address)
-    vaultData,                                            // 27: vaultData
+    1,                                                    // 3: dexThresh (1 per test)
+    salt,                                                 // 4: salt
+    MIGRATOR_TYPE_V2,                                     // 5: migratorType
+    "0x0000000000000000000000000000000000000000",         // 6: quoteToken (native ETH)
+    0n,                                                   // 7: quoteAmt
+    "0x",                                                 // 8: permitData
+    "0x0000000000000000000000000000000000000000000000000000000000000000", // 9: extensionID
+    "0x",                                                 // 10: extensionData
+    0,                                                    // 11: dexId
+    0,                                                    // 12: lpFeeProfile
+    buyTaxBps,                                            // 13: buyTaxRate
+    sellTaxBps,                                           // 14: sellTaxRate
+    3153600000n,                                          // 15: totalSupply (3.15B per test)
+    2592000,                                              // 16: maxWallet (2.59M per test)
+    0,                                                    // 17: deflationBps (NO burn, per source 100%-to-vault)
+    0,                                                    // 18: dividendBps
+    10000,                                                // 19: vaultBps (100% to vault, per source)
+    0,                                                    // 20: lpBps
+    0n,                                                   // 21: lockerDeadline
+    "0x0000000000000000000000000000000000000000",         // 22: locker
+    "0x0000000000000000000000000000000000000000",         // 23: hook
+    0,                                                    // 24: mevModuleV2Type (0 = none)
+    "0x0000000000000000000000000000000000000000",         // 25: mevModuleV2 (none)
+    vaultData,                                            // 26: vaultData
   ];
 
   // 4. Submit
