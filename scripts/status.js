@@ -78,7 +78,6 @@ async function main() {
     // Overall agent status
     const provider = getProvider();
     const blockNumber = await provider.getBlockNumber();
-    const walletAddress = (await import("ethers")).Wallet.createRandom().address; // Just for format
     ok({
       type: "agent_overall",
       chain: "Robinhood",

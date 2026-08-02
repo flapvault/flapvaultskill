@@ -1,7 +1,7 @@
 // Shared utilities for FlapVault skill scripts
 // All scripts import from this file
 
-import { JsonRpcProvider, Wallet, Contract, getAddress } from "ethers";
+import { JsonRpcProvider, Wallet, Contract, getAddress, AbiCoder } from "ethers";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

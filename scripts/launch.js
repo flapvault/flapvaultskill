@@ -14,6 +14,7 @@ import {
   ok,
   fail,
   getFactoryAddress,
+  AbiCoder,
 } from "./shared.js";
 
 async function main() {
@@ -73,7 +74,7 @@ async function main() {
 
   // Encode BuybackVaultConfig: (taxtoken, owner, xController, xId)
   // Note: taxtoken is auto-overridden by factory from VaultPortal's predicted address.
-  const vaultData = ethers.AbiCoder.defaultAbiCoder().encode(
+  const vaultData = AbiCoder.defaultAbiCoder().encode(
     ["address", "address", "string", "uint128"],
     [
       "0x0000000000000000000000000000000000000000", // taxtoken (placeholder, factory overrides)

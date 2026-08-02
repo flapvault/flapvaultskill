@@ -1,3 +1,8 @@
+---
+name: flapvault
+description: Launch and control Flap tax tokens with auto-buyback vaults on Robinhood Chain (chain 4663). Use when the user wants to launch a new tax token, trigger a buyback, withdraw from a vault reserve, set an airdrop round, execute a governance proposal, or read vault/token status. Tools - launch_token, trigger_buyback, withdraw_taxtoken, set_airdrop_round, execute_proposal, get_status. Always verify X proof before vault actions. Replay-protected via tweetId monotonicity.
+---
+
 # FlapVault — Buyback Vault Skill
 
 This skill lets the agent launch and control Flap tax tokens on Robinhood Chain (chain 4663) via the BuybackVault factory and the X (Twitter) controller pattern.
@@ -82,6 +87,6 @@ Required env vars:
 - `CHAIN_ID=4663`
 - `BUYBACK_VAULT_FACTORY` — deployed factory address
 - `ORACLE_URL` — Flap X oracle endpoint
-- `X_API_KEY`, `X_API_SECRET`, `X_API_BEARER` — for X API access
+- `X_API_KEY`, `X_API_SECRET`, `X_BEARER_TOKEN` — for X API access
 - `X_BOT_USER_ID` — numeric ID of @flapdotshvault
 - `X_BOT_HANDLE=flapdotshvault`
