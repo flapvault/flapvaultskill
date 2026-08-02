@@ -77,10 +77,12 @@ export const BUYBACK_VAULT_ABI = [
 export const VAULT_PORTAL_ABI = [
   // Flap's actual NewTokenV6WithVaultParams (per docs.flap.sh):
   // - 3 strings: name, symbol, meta
-  // Verified selector: 0x1b806220 (matches test tx 0x718960e8...e840)
-  // 27-field ABI per /dmattrenggana/flapvault src/BuybackVaultFactory.sol
-  // Source model: 100% to vault (vaultBps=10000), 75% buyback, 25% eco pool
-  "function newTokenV6WithVault(tuple(string name, string symbol, string meta, uint8 dexThresh, bytes32 salt, uint8 migratorType, address quoteToken, uint256 quoteAmt, bytes permitData, bytes32 extensionID, bytes extensionData, uint8 dexId, uint8 lpFeeProfile, uint16 buyTaxRate, uint16 sellTaxRate, uint64 totalSupply, uint64 maxWallet, uint16 deflationBps, uint16 dividendBps, uint16 vaultBps, uint16 lpBps, uint256 lockerDeadline, address locker, address hook, uint8 mevModuleV2Type, address mevModuleV2, bytes vaultData) params) payable returns (address token)",
+  // CORRECT 27-field ABI per Flap docs.
+  // Verified selector: 0x1b806220 (matches test tx 0x718960e8...e840).
+  // Field 24 = tokenVersion (MUST be 6 = TOKEN_TAXED_V3, else FeatureDisabled).
+  // Field 25 = vaultFactory (our factory address).
+  // Field 17 = mktBps (100% to marketing in the verified test).
+  "function newTokenV6WithVault(tuple(string name, string symbol, string meta, uint8 dexThresh, bytes32 salt, uint8 migratorType, address quoteToken, uint256 quoteAmt, bytes permitData, bytes32 extensionID, bytes extensionData, uint8 dexId, uint8 lpFeeProfile, uint16 buyTaxRate, uint16 sellTaxRate, uint64 taxDuration, uint64 antiFarmerDuration, uint16 mktBps, uint16 deflationBps, uint16 dividendBps, uint16 lpBps, uint256 minimumShareBalance, address dividendToken, address commissionReceiver, uint8 tokenVersion, address vaultFactory, bytes vaultData) params) payable returns (address token)",
   "event FlapTaxVaultTokenCreated(address indexed token, address indexed vault, address indexed vaultFactory, address creator, string name, string symbol, uint16 buyTaxBps, uint16 sellTaxBps)",
 ];
 

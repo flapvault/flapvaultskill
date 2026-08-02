@@ -2,16 +2,21 @@
 // Usage: node launch.js <name> [buyTaxBps=300] [sellTaxBps=300] [xHandle=""] [xId=0]
 // Example: node launch.js KOPI 300 300 mattrenggana 145621088
 //
-// The function selector is 0x1b806220 (27-field ABI per verified test tx).
-// Reference verified-working test deploy:
-//   tx 0x718960e8...e840 → token 0xaF76...7777, vault deployed
+// CRITICAL: 27-field ABI per Flap docs. Selector 0x1b806220.
+// Field 25 = `tokenVersion` (NOT mevModuleV2Type!). MUST be 6 (TOKEN_TAXED_V3)
+// otherwise revert FeatureDisabled().
+// Field 26 = `vaultFactory` (NOT mevModuleV2!). Set to our factory address.
 //
-// Source per /dmattrenggana/flapvault src/BuybackVaultFactory.sol:
-//   100% tax to vault (vaultBps=10000) — self-buyback model.
-//   75% ETH → buyback token via Portal (bonding) or V2 router (post-graduation).
-//   2/3 of buyback output → vault reserve, 1/3 → staker dividend.
-//   25% ETH → eco pool.
-//   Factory commission: 10% if tax≤1%, 20% if tax>1%.
+// Verified working test deploy:
+//   tx 0x718960e8...e840 → token 0xaF76...7777
+//   field 24 (tokenVersion) = 6
+//   field 25 (vaultFactory) = 0x39769E... (our factory)
+//   field 17 (mktBps) = 10000 (100% to marketing/wallet)
+//   field 18 (deflationBps) = 0 (no burn)
+//   field 13 (buyTaxRate) = 300 (3%)
+//   field 14 (sellTaxRate) = 300 (3%)
+//   field 15 (taxDuration) = 3153600000 (3.15B seconds = 100 years)
+//   field 16 (antiFarmerDuration) = 2592000 (2.59M seconds = 30 days)
 //
 // Token address must end in "7777" (Flap vanity suffix for TAXED_V3).
 // Salt is mined locally via CREATE2 prediction before submission.
@@ -103,21 +108,18 @@ async function main() {
     [wallet.address, xHandle, xId]
   );
 
-  // 3. Build params with 27-field ABI (selector 0x1b806220).
-  //    Per source: 100% to vault (vaultBps=10000), no burn, no MEV.
-  //    Other values from verified test deploy.
+  // 3. Build params with CORRECT 27-field ABI per Flap docs.
+  //    Per test tx: 100% mktBps, no deflation, no LP, no dividend.
+  //    tokenVersion MUST be 6 (TOKEN_TAXED_V3) — else FeatureDisabled().
   //
-  //  CRITICAL: meta MUST be ≥ 7 chars (Flap Portal FeatureDisabled check
-  //  on `bytes(params.meta).length < 7`). Test used an IPFS hash.
-  //  We use a deterministic placeholder for now; replace with real IPFS
-  //  CID before production.
+  //  CRITICAL: meta must be non-empty (Flap Portal validation).
   const meta = `ipfs://flapvault/${name.toLowerCase()}-metadata-v1`;
   const params = [
     name,                                                 // 0: name
     name,                                                 // 1: symbol
-    meta,                                                 // 2: meta (≥7 chars required)
+    meta,                                                 // 2: meta (non-empty)
     1,                                                    // 3: dexThresh (1 per test)
-    salt,                                                 // 4: salt
+    salt,                                                 // 4: salt (vanity 7777)
     MIGRATOR_TYPE_V2,                                     // 5: migratorType
     "0x0000000000000000000000000000000000000000",         // 6: quoteToken (native ETH)
     0n,                                                   // 7: quoteAmt
@@ -128,17 +130,17 @@ async function main() {
     0,                                                    // 12: lpFeeProfile
     buyTaxBps,                                            // 13: buyTaxRate
     sellTaxBps,                                           // 14: sellTaxRate
-    3153600000n,                                          // 15: totalSupply (3.15B per test)
-    2592000,                                              // 16: maxWallet (2.59M per test)
-    0,                                                    // 17: deflationBps (NO burn, per source 100%-to-vault)
-    0,                                                    // 18: dividendBps
-    10000,                                                // 19: vaultBps (100% to vault, per source)
+    3153600000n,                                          // 15: taxDuration (100 years)
+    2592000n,                                             // 16: antiFarmerDuration (30 days)
+    10000,                                                // 17: mktBps (100% to marketing)
+    0,                                                    // 18: deflationBps (no burn)
+    0,                                                    // 19: dividendBps
     0,                                                    // 20: lpBps
-    0n,                                                   // 21: lockerDeadline
-    "0x0000000000000000000000000000000000000000",         // 22: locker
-    "0x0000000000000000000000000000000000000000",         // 23: hook
-    0,                                                    // 24: mevModuleV2Type (0 = none)
-    "0x0000000000000000000000000000000000000000",         // 25: mevModuleV2 (none)
+    0n,                                                   // 21: minimumShareBalance
+    "0x0000000000000000000000000000000000000000",         // 22: dividendToken
+    "0x0000000000000000000000000000000000000000",         // 23: commissionReceiver
+    TOKEN_VERSION_TAXED_V3,                              // 24: tokenVersion (MUST be 6)
+    factory,                                              // 25: vaultFactory
     vaultData,                                            // 26: vaultData
   ];
 
