@@ -110,10 +110,15 @@ async function main() {
 
   // 3. Build params with CORRECT 27-field ABI per Flap docs.
   //    Per test tx: 100% mktBps, no deflation, no LP, no dividend.
-  //    tokenVersion MUST be 6 (TOKEN_TAXED_V3) — else FeatureDisabled().
+  //    tokenVersion MUST be 6 (TOKEN_TAXED_V3) at slot 24 — else FeatureDisabled().
   //
-  //  CRITICAL: meta must be non-empty (Flap Portal validation).
-  const meta = `ipfs://flapvault/${name.toLowerCase()}-metadata-v1`;
+  //  CRITICAL: meta MUST be a valid IPFS CIDv1 (base32, starting with 'bafk').
+  //    Flap Portal docs: "meta is the IPFS CID of your metadata JSON".
+  //    Per docs: https://docs.flap.sh/flap/developers/token-launcher-developers/launch-token-through-portal
+  //    Verified test meta: bafkreibqh4o22zlyxuksstnwfxk4hw35efqaqi5jnwufurwi4emcjt5coy
+  //    Format: bafk[51 chars] (CIDv1, sha256, base32)
+  //    We use test's CID until project uploads its own metadata to IPFS.
+  const meta = "bafkreibqh4o22zlyxuksstnwfxk4hw35efqaqi5jnwufurwi4emcjt5coy";
   const params = [
     name,                                                 // 0: name
     name,                                                 // 1: symbol
