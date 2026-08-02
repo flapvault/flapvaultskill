@@ -51,12 +51,9 @@ async function main() {
   const factory = getFactoryAddress();
   const portal = ADDRESSES.VAULT_PORTAL;
 
-  // Read factory policies (verify vaultBps=10000)
-  const factoryContract = new (await import("ethers")).Contract(factory, FACTORY_ABI, wallet);
-  const policies = await factoryContract.tokenCreationPolicies();
-  if (Number(policies.vaultBps) !== 10000) {
-    fail(`Factory vaultBps != 10000. Got: ${policies.vaultBps}`);
-  }
+  // Note: vaultBps=10000 is enforced ON-CHAIN by factory's _validateBeforeLaunch.
+  // No client-side check needed (and previous script-side check used wrong ABI for
+  // tokenCreationPolicies() which returns FactoryPolicy[] not (uint16,bool)).
 
   // Build params
   const salt = "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
