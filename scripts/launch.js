@@ -29,6 +29,7 @@ import {
   fail,
   getFactoryAddress,
   AbiCoder,
+  assertWriteReady,
 } from "./shared.js";
 
 const FLAP_PORTAL = "0x26605f322f7fF986f381bB9A6e3f5DAb0bEaEb09";
@@ -90,17 +91,13 @@ async function main() {
   }
 
   const wallet = getWallet();
+  await assertWriteReady(wallet);
   const factory = getFactoryAddress();
   const vaultPortal = ADDRESSES.VAULT_PORTAL;
 
   // 1. Mine vanity salt
   const { salt, address: predictedToken, iterations } = mineVanitySalt();
-  ok({
-    step: "vanity_salt",
-    salt,
-    predictedToken,
-    iterations,
-  });
+
 
   // 2. Build vaultData (factory's BuybackVaultConfig — 3 fields: owner, xController, xId)
   const vaultData = AbiCoder.defaultAbiCoder().encode(
