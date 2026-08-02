@@ -75,8 +75,18 @@ export const BUYBACK_VAULT_ABI = [
 ];
 
 export const VAULT_PORTAL_ABI = [
-  "function newTokenV6WithVault(tuple(string name, string symbol, uint16 buyTaxBps, uint16 sellTaxBps, address tokenAdmin, string uri, bytes32 salt, address locker, address[] mevModules, address hook, address mevModuleV2, bool mevDescendingFees, uint256 lockerDeadline, tuple(uint16 vaultBps, address vaultFactory, address vaultImpl, bytes vaultData) vaultConfig) params) payable returns (address token, address vault, address mevModule)",
-  "event TokenCreated(address indexed token, address indexed vault, address indexed creator, string name, string symbol, uint16 buyTaxBps, uint16 sellTaxBps)",
+  // Flap's actual NewTokenV6WithVaultParams (per docs.flap.sh):
+  // - 3 strings: name, symbol, meta
+  // - 2 enums: dexThresh (uint8), migratorType (uint8)
+  // - bytes32 salt, address quoteToken, uint256 quoteAmt
+  // - bytes permitData, bytes32 extensionID, bytes extensionData
+  // - 2 enums: dexId (uint8), lpFeeProfile (uint8)
+  // - 12 V3 tax fields (uint16/uint64/uint256 mix)
+  // - 2 addresses: dividendToken, commissionReceiver
+  // - enum tokenVersion (uint8, must be TOKEN_TAXED_V3=6)
+  // - address vaultFactory, bytes vaultData
+  "function newTokenV6WithVault(tuple(string name, string symbol, string meta, uint8 dexThresh, bytes32 salt, uint8 migratorType, address quoteToken, uint256 quoteAmt, bytes permitData, bytes32 extensionID, bytes extensionData, uint8 dexId, uint8 lpFeeProfile, uint16 buyTaxRate, uint16 sellTaxRate, uint64 taxDuration, uint64 antiFarmerDuration, uint16 mktBps, uint16 deflationBps, uint16 dividendBps, uint16 lpBps, uint256 minimumShareBalance, address dividendToken, address commissionReceiver, uint8 tokenVersion, address vaultFactory, bytes vaultData) params) payable returns (address token)",
+  "event FlapTaxVaultTokenCreated(address indexed token, address indexed vault, address indexed vaultFactory, address creator, string name, string symbol, uint16 buyTaxBps, uint16 sellTaxBps)",
 ];
 
 export const ERC20_ABI = [
