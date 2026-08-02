@@ -1,92 +1,26 @@
 ---
 name: flapvault
-description: Launch and control Flap tax tokens with auto-buyback vaults on Robinhood Chain (chain 4663). Use when the user wants to launch a new tax token, trigger a buyback, withdraw from a vault reserve, set an airdrop round, execute a governance proposal, or read vault/token status. Tools - launch_token, trigger_buyback, withdraw_taxtoken, set_airdrop_round, execute_proposal, get_status. Always verify X proof before vault actions. Replay-protected via tweetId monotonicity.
+description: Launch and control Flap tax tokens with auto-buyback vaults on Robinhood Chain 4663. Supports launch, X-proof buyback, reserve withdrawal, airdrop setup, proposal execution, and status reads.
 ---
+# FlapVault skill
 
-# FlapVault — Buyback Vault Skill
+Robinhood Chain only. Deployed factory: `0x39769E037884718dcA021BD6beaafFC902377B29`.
 
-This skill lets the agent launch and control Flap tax tokens on Robinhood Chain (chain 4663) via the BuybackVault factory and the X (Twitter) controller pattern.
+## Commands
+- `node scripts/launch.js <SYMBOL> [buyTaxBps=300] [sellTaxBps=300] [xHandle=""] [xId=0]`
+- `node scripts/buyback.js <token> <vault> <tweetId> <xHandle> <xId>`
+- `node scripts/withdraw.js <token> <vault> <amountTokens> <to> <tweetId> <xHandle> <xId>`
+- `node scripts/airdrop.js <token> <vault> <amountPerClaimantTokens> <maxClaimants> <tweetId> <xHandle> <xId>`
+- `node scripts/execute.js <token> <vault> <proposalId> <tweetId> <xHandle> <xId>`
+- `node scripts/status.js [token|vault]`
 
-## What this skill does
+Write actions validate chain 4663, contract code, vault/token pairing, controller handle/id, monotonic tweet ID, and minimum 0.01 ETH gas. Human token amounts are converted with token decimals. Canonical proof text uses the exact `@flapdotshvault` prefix and lowercase addresses required by the contract.
 
-- **Launch tokens** via VaultPortal.newTokenV6WithVault
-- **Trigger buyback** on a vault (via X proof from the bound X controller)
-- **Withdraw** from vault reserve (via X proof)
-- **Set airdrop rounds** (via X proof)
-- **Execute governance proposals** (via X proof)
-- **Read** vault state and token info
-
-## When to use this skill
-
-Use when the user (on X or in chat) wants to:
-- Launch a new tax token with auto-buyback
-- Trigger a buyback
-- Withdraw tokens
-- Run an airdrop
-- Execute a passed proposal
-- Check token/vault status
-
-## Chain
-
-Robinhood Chain only (chain 4663). Never use this skill for BNB, Base, or any other chain.
-
-## Tools
-
-| Tool | Description | Inputs |
-|---|---|---|
-| `launch_token` | Launch a new Flap tax token + buyback vault | `name`, `buyTaxBps?`, `sellTaxBps?`, `imageUrl?` |
-| `trigger_buyback` | Trigger buyback on a vault | `token`, `vault`, `tweetId`, `xHandle`, `xId` |
-| `withdraw_taxtoken` | Withdraw from reserve | `token`, `vault`, `amount`, `to`, `tweetId`, `xHandle`, `xId` |
-| `set_airdrop_round` | Set a new airdrop round (7 days, #FlapAirdrop) | `token`, `vault`, `amountPerClaimant`, `maxClaimants`, `tweetId`, `xHandle`, `xId` |
-| `execute_proposal` | Execute a tallied governance proposal | `token`, `vault`, `proposalId`, `tweetId`, `xHandle`, `xId` |
-| `get_status` | Read vault/token status | `name?` or `token?` or `vault?` |
-
-## How to call
-
-Always use the bundled scripts in `./scripts/`:
-
-```bash
-# Launch
-./scripts/launch.js KOPI 300 300
-
-# Buyback (requires X proof params from oracle)
-./scripts/buyback.js <token> <vault> <tweetId> <xHandle> <xId>
-
-# Status
-./scripts/status.js KOPI
-```
-
-The scripts print JSON to stdout. Parse the JSON and reply to the user with a short, human-friendly message.
-
-## Response style
-
-After any action, post a tweet reply (if X-triggered) or chat reply (if developer-triggered) following the templates in `AGENTS.md`. Always include:
-- Tx hash on success
-- Clear reason on failure
-- Short, English-only text
-- 1-2 emojis max
-
-For launch success, include the Flap.sh token page link:
-```
-https://flap.sh/robinhood/{tokenAddress}
-```
-
-## Constraints
-
-- **English only** — never reply in Indonesian or other languages
-- **Always verify X proof** for vault actions — never bypass
-- **Replay protection** — tweetId must be > lastXControllerTweetId for the handle
-- **Rate limit** — max 10 actions per xHandle per hour
-- **Gas check** — if wallet balance < 0.01 ETH, warn and pause
+X-proof buyback submits `minTaxtokenOut=0`. When `lastGoodPrice` is zero, owner/guardian must first bootstrap with `autoBuybackAuto(minOut > 0)`.
 
 ## Environment
+- wallet: `X_AGENT_PRIVATE_KEY` or `FLAP_PRIV_KEY`
+- RPC: `RPC_URL` or `ALCHEMY_RPC_ROBINHOOD`
+- optional: `BUYBACK_VAULT_FACTORY`, `ORACLE_URL`, `ORACLE_API_KEY`
 
-Required env vars:
-- `X_AGENT_PRIVATE_KEY` — operational wallet private key
-- `RPC_URL` — Robinhood RPC endpoint
-- `CHAIN_ID=4663`
-- `BUYBACK_VAULT_FACTORY` — deployed factory address
-- `ORACLE_URL` — Flap X oracle endpoint
-- `X_API_KEY`, `X_API_SECRET`, `X_BEARER_TOKEN` — for X API access
-- `X_BOT_USER_ID` — numeric ID of @flapdotshvault
-- `X_BOT_HANDLE=flapdotshvault`
+Each script emits one final JSON object to stdout. No vault action bypasses X proof.

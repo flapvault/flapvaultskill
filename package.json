@@ -1,18 +1,1 @@
-{
-  "name": "flapvault-skill",
-  "version": "1.0.0",
-  "description": "Flap tax token + buyback vault skill for OpenClaw",
-  "type": "module",
-  "main": "scripts/launch.js",
-  "scripts": {
-    "launch": "node scripts/launch.js",
-    "buyback": "node scripts/buyback.js",
-    "withdraw": "node scripts/withdraw.js",
-    "airdrop": "node scripts/airdrop.js",
-    "execute": "node scripts/execute.js",
-    "status": "node scripts/status.js"
-  },
-  "dependencies": {
-    "ethers": "^6.13.0"
-  }
-}
+{"name":"flapvault-skill","version":"1.1.0","description":"Flap tax token + buyback vault skill","type":"module","scripts":{"launch":"node scripts/launch.js","buyback":"node scripts/buyback.js","withdraw":"node scripts/withdraw.js","airdrop":"node scripts/airdrop.js","execute":"node scripts/execute.js","status":"node scripts/status.js","test":"node --test tests/*.test.js"},"engines":{"node":">=20"},"dependencies":{"ethers":"6.13.5"}}

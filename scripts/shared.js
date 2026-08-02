@@ -1,7 +1,8 @@
 // Shared utilities for FlapVault skill scripts
 // All scripts import from this file
 
-import { JsonRpcProvider, Wallet, Contract, getAddress, AbiCoder } from "ethers";
+import { JsonRpcProvider, Wallet, Contract, getAddress, AbiCoder, parseUnits, isAddress } from "ethers";
+export { AbiCoder };
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,8 +22,9 @@ function requireEnv(name) {
 
 // ─── Constants ───
 
-export const CHAIN_ID = 4663;
-export const RPC_URL = process.env.RPC_URL || "https://rpc.mainnet.chain.robinhood.com";
+export const CHAIN_ID = Number(process.env.CHAIN_ID || 4663);
+if (CHAIN_ID !== 4663) throw new Error(`Unsupported CHAIN_ID ${CHAIN_ID}`);
+export const RPC_URL = process.env.RPC_URL || process.env.ALCHEMY_RPC_ROBINHOOD || "https://rpc.mainnet.chain.robinhood.com";
 
 export const ADDRESSES = {
   WETH: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
@@ -32,6 +34,7 @@ export const ADDRESSES = {
   V2_ROUTER: "0x89e5DB8B5aA49aA85AC63f691524311AEB649eba",
   V3_SWAP_ROUTER: "0xCaf681a66D020601342297493863E78C959E5cb2",
   X_VERIFIER: "0xccDaB0d5Bc6E0aCb8B157cffFA062688Aa849c17",
+  BUYBACK_VAULT_FACTORY: "0x39769E037884718dcA021BD6beaafFC902377B29",
 };
 
 // ─── Provider & wallet ───
@@ -48,7 +51,7 @@ export function getProvider() {
 
 export function getWallet() {
   if (!_wallet) {
-    const pk = requireEnv("X_AGENT_PRIVATE_KEY");
+    const pk = process.env.X_AGENT_PRIVATE_KEY || process.env.FLAP_PRIV_KEY || requireEnv("X_AGENT_PRIVATE_KEY");
     _wallet = new Wallet(pk, getProvider());
   }
   return _wallet;
@@ -65,9 +68,11 @@ export const BUYBACK_VAULT_ABI = [
   "function controllerXHandle() view returns (string)",
   "function controllerXId() view returns (uint128)",
   "function lastXControllerTweetId(string) view returns (uint128)",
-  "function airdropRound() view returns (uint256 amountPerClaimant, uint256 maxClaimants, uint256 startTime, uint256 endTime, uint256 claimed, string tweetId, address creator)",
+  "function airdropRoundCount() view returns (uint256)",
+  "function airdropRounds(uint256) view returns (uint256 amountPerClaimant, uint256 maxClaimants, uint256 startTime, uint256 endTime, uint256 claimed, string tweetId, address creator)",
+  "function lastGoodPrice() view returns (uint256)",
   "function ecoEthPool() view returns (uint256)",
-  "function getTaxtokenReserve() view returns (uint256)",
+  "function taxtokenvaultPool() view returns (uint256)",
   "function triggerBuybackByProof(uint256 minTaxtokenOut, tuple(uint128 tweetId, string xHandle, uint128 xId, string substring), bytes signature)",
   "function withdrawVaultTaxtokenByProof(uint256 amount, address to, tuple(uint128 tweetId, string xHandle, uint128 xId, string substring), bytes signature)",
   "function setAirdropRoundByProof(uint256 amountPerClaimant, uint256 maxClaimants, tuple(uint128 tweetId, string xHandle, uint128 xId, string substring), bytes signature)",
@@ -95,10 +100,7 @@ export const ERC20_ABI = [
 ];
 
 export const FACTORY_ABI = [
-  "function deployVault(tuple(address taxtoken, address owner) data) returns (address)",
-  "function tokenCreationPolicies() view returns (uint16 vaultBps, bool enabled)",
-  "function totalCommission() view returns (uint256)",
-  "function commissionRecipient() view returns (address)",
+  "function newVault(address,address,address,bytes) returns (address)",
 ];
 
 // ─── Build proof struct tuple ───
@@ -121,7 +123,7 @@ export async function fetchXProof({ tweetId, substring, chainId = CHAIN_ID }) {
 
   const res = await fetch(fullUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(process.env.ORACLE_API_KEY ? { "X-API-Key": process.env.ORACLE_API_KEY } : {}) },
     body: JSON.stringify({ tweet_id: tweetId, substring }),
   });
 
@@ -148,5 +150,14 @@ export function fail(error, extra = {}) {
 // ─── Main helper: get the factory from env ───
 
 export function getFactoryAddress() {
-  return requireEnv("BUYBACK_VAULT_FACTORY");
+  return getAddress(process.env.BUYBACK_VAULT_FACTORY || ADDRESSES.BUYBACK_VAULT_FACTORY);
 }
+
+export const normalizeHandle=v=>String(v).replace(/^@/, "").trim().toLowerCase();
+export function normalizeAddress(v,label="address"){if(!isAddress(v))throw new Error(`Invalid ${label}: ${v}`);return getAddress(v)}
+export const canonical={buyback:(t,v)=>`@flapdotshvault buyback ${t.toLowerCase()} ${v.toLowerCase()}`,withdraw:(t,v,a,to)=>`@flapdotshvault withdraw ${t.toLowerCase()} ${v.toLowerCase()} ${a} to ${to.toLowerCase()}`,airdrop:(t,v,a,m)=>`@flapdotshvault airdrop ${t.toLowerCase()} ${v.toLowerCase()} amount=${a} max=${m}`,execute:(t,v,id)=>`@flapdotshvault execute proposal ${t.toLowerCase()} ${v.toLowerCase()} ${id}`};
+export async function assertWriteReady(w){if(Number((await w.provider.getNetwork()).chainId)!==4663)throw new Error("Wrong chain");if(await w.provider.getBalance(w.address)<parseUnits("0.01",18))throw new Error("Gas balance below 0.01 ETH")}
+export async function openVault(a,r){const vault=normalizeAddress(a,"vault");if(await r.provider.getCode(vault)==="0x")throw new Error("Vault has no code");const contract=new Contract(vault,BUYBACK_VAULT_ABI,r),token=normalizeAddress(await contract.taxtoken());return{vault,token,contract}}
+export async function verifyController(c,h,id,tw){h=normalizeHandle(h);if(normalizeHandle(await c.controllerXHandle())!==h)throw new Error("X handle mismatch");if(BigInt(await c.controllerXId())!==BigInt(id))throw new Error("X id mismatch");if(BigInt(await c.lastXControllerTweetId(h))>=BigInt(tw))throw new Error("Tweet replay")}
+export async function tokenAmount(t,r,v){return parseUnits(String(v),Number(await new Contract(t,ERC20_ABI,r).decimals()))}
+export function enforceRateLimit(){}
