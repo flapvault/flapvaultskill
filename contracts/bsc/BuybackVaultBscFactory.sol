@@ -13,14 +13,14 @@
 //    REMOVED to fit BSC's 24KB contract size limit (EIP-170):
 //      - Governance proposals / voting (createProposal, voteApproval, vote, tally, execute)
 //      - ecoEthPool (25% BNB reserve for governance was killed with governance)
-//      - X-proof admin actions: withdrawVaultTaxtokenByProof,
-//        setAirdropRoundByProof, executeProposalByProof
+//      - X-proof admin actions: setAirdropRoundByProof, executeProposalByProof
 //    KEPT:
 //      - 100% BNB->taxtoken buyback (no ecopool, more aggressive than Robinhood's 75%)
 //      - 2/3 taxtoken to vault reserve, 1/3 to staker dividend
 //      - Staking + dividend (1 day stake lock, no unstake cooldown)
 //      - Tweet-gated airdrops
 //      - X-controller proof buyback trigger (triggerBuybackByProof)
+//      - X-controller proof reserve withdraw (withdrawVaultTaxtokenByProof) -- re-enabled
 //      - Emergency withdraw (ETH + token)
 //
 //  factorySpecVersion() returns "v2.2-bsc-lite" to distinguish from

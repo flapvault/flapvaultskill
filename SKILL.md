@@ -1,6 +1,6 @@
 ---
 name: flapvault
-description: Launch and control Flap tax tokens (TOKEN_TAXED_V3) with auto-buyback vaults on Robinhood Chain (4663) and BSC mainnet (56). Supports launch, X-proof buyback, reserve withdrawal (Robinhood only), airdrop setup (Robinhood only), and status reads.
+description: Launch and control Flap tax tokens (TOKEN_TAXED_V3) with auto-buyback vaults on Robinhood Chain (4663) and BSC mainnet (56). Supports launch, X-proof buyback, X-proof reserve withdrawal, airdrop setup (Robinhood only), and status reads.
 ---
 # FlapVault skill
 
@@ -22,12 +22,12 @@ Cross-chain support for the BuybackVault pattern on Robinhood Chain and BSC main
 | 75% / 25% buyback split (with ecoEthPool) | ✅ | ❌ (100% buyback, no ecopool) |
 | Staking + dividend (1 day lock) | ✅ | ✅ |
 | Tweet-gated airdrops | ✅ | ✅ |
-| X-proof withdraw (`withdrawVaultTaxtokenByProof`) | ✅ | ❌ (owner/guardian EOA only) |
+| X-proof withdraw (`withdrawVaultTaxtokenByProof`) | ✅ | ✅ (re-enabled) |
 | X-proof airdrop round (`setAirdropRoundByProof`) | ✅ | ❌ (owner/guardian EOA only) |
 | Governance: createProposal / vote / execute | ✅ | ❌ (entirely removed) |
 | Uniswap V4 buyback | ✅ | ❌ (V4 not on BSC) |
 
-**BSC lite rationale:** BSC enforces the standard 24KB EIP-170 contract size limit. The full Robinhood implementation is 33,981 bytes. The lite build drops governance + ecopool + X-proof admin actions to fit in 21,879 bytes. Core buyback (now 100% BNB → taxtoken, more aggressive than Robinhood's 75%) + staking + airdrops + X-proof buyback trigger are preserved.
+**BSC lite rationale:** BSC enforces the standard 24KB EIP-170 contract size limit. The full Robinhood implementation is 33,981 bytes. The lite build drops governance + ecopool + setAirdropRoundByProof to fit in 23,633 bytes. Core buyback (now 100% BNB → taxtoken, more aggressive than Robinhood's 75%) + staking + airdrops + X-proof buyback trigger + X-proof withdraw are preserved.
 
 ## Commands
 
@@ -37,7 +37,7 @@ Cross-chain support for the BuybackVault pattern on Robinhood Chain and BSC main
 
 - `node scripts/launch.js <SYMBOL> [buyTaxBps=300] [sellTaxBps=300] [xHandle=""] [xId=0]`
 - `node scripts/buyback.js <token> <vault> <tweetId> <xHandle> <xId>`
-- `node scripts/withdraw.js <token> <vault> <amountTokens> <to> <tweetId> <xHandle> <xId>` (Robinhood only)
+- `node scripts/withdraw.js <token> <vault> <amountTokens> <to> <tweetId> <xHandle> <xId>` (Robinhood only — until `shared.js` multi-chain refactor)
 - `node scripts/airdrop.js <token> <vault> <amountPerClaimantTokens> <maxClaimants> <tweetId> <xHandle> <xId>` (Robinhood only)
 - `node scripts/execute.js <token> <vault> <proposalId> <tweetId> <xHandle> <xId>` (Robinhood only)
 - `node scripts/status.js [token|vault]`
@@ -84,9 +84,9 @@ Oracle endpoint format: `https://verifyx.taxed.fun/prove?chain_id={CHAIN_ID}` (p
 The cron poll path (`poll-mentions.js`) does NOT invoke `launch.js` directly — it only lists new mentions for the user to approve. Only the orchestrator (the chat LLM) calls `launch.js`, and it MUST pass `LAUNCH_TWEET_ID` every time.
 
 **BSC lite action filter.** When the vault's factory resolves to BSC lite, only the following actions are supported via X proof:
-- ✅ `trigger_buyback`
-- ❌ `withdraw_taxtoken` — reply with `"BSC vault (lite build) doesn't support X-proof admin actions. Withdraw via owner/guardian EOA only."`
-- ❌ `set_airdrop_round` — same message
+- ✅ `trigger_buyback` — `@flapdotshvault buyback 0xtoken 0xvault`
+- ✅ `withdraw_taxtoken` — `@flapdotshvault withdraw 0xtoken 0xvault <amount> to 0xto`
+- ❌ `set_airdrop_round` — reply with `"BSC vault (lite build) doesn't support X-proof airdrop round setup. Owner/guardian EOA only."`
 - ❌ `execute_proposal` — reply with `"BSC vault (lite build) has no governance. No execution path."`
 
 **Launch path applies to both chains.** The `launch.js` script will work on BSC once `shared.js` is refactored. Until then, BSC launches must go through `cast` or `forge` with the BSC factory address as `vaultFactory` in the `NewTokenV6WithVaultParams` tuple (field 25).

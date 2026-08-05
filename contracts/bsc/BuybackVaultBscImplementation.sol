@@ -1073,8 +1073,8 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
 
     function vaultUISchema() public pure virtual override returns (VaultUISchema memory schema) {
         schema.vaultType = "BuybackVaultBscV2";
-        schema.description = "Auto buyback vault (BSC lite): 100% BNB->taxtoken (2/3 vault reserve, 1/3 staker dividend) + staking (1 day lock) + tweet-gated airdrop. No governance, no ecopool, no proposal voting - pure buyback. X controller can trigger buyback via tweet proof.";
-        schema.methods = new VaultMethodSchema[](5);
+        schema.description = "Auto buyback vault (BSC lite): 100% BNB->taxtoken (2/3 vault reserve, 1/3 staker dividend) + staking (1 day lock) + tweet-gated airdrop. No governance, no ecopool, no proposal voting. X controller can trigger buyback AND withdraw via tweet proof.";
+        schema.methods = new VaultMethodSchema[](6);
 
         schema.methods[0].name = "autoBuybackAuto";
         schema.methods[0].description = "Triggers automatic buyback. Only owner or guardian.";
@@ -1114,10 +1114,24 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
         );
         schema.methods[4].inputs[1] = FieldDescriptor("signature", "bytes", "Flap oracle signature over the proof", 0);
         schema.methods[4].isWriteMethod = true;
+
+        schema.methods[5].name = "withdrawVaultTaxtokenByProof";
+        schema.methods[5].description = "X controller: withdraw taxtoken from vault reserve to a destination address. Tweet '@flapdotshvault withdraw 0xtoken 0xvault <amount> to 0xto' then submit Flap oracle proof.";
+        schema.methods[5].inputs = new FieldDescriptor[](4);
+        schema.methods[5].inputs[0] = FieldDescriptor("amount", "uint256", "Amount of taxtoken to withdraw", 18);
+        schema.methods[5].inputs[1] = FieldDescriptor("to", "address", "Destination address (must match the address in the tweet)", 0);
+        schema.methods[5].inputs[2] = FieldDescriptor(
+            "proof",
+            "XGeneralProof",
+            "Flap X General Proof struct: {tweetId: uint128, xHandle: string, xId: uint128, substring: string}",
+            0
+        );
+        schema.methods[5].inputs[3] = FieldDescriptor("signature", "bytes", "Flap oracle signature over the proof", 0);
+        schema.methods[5].isWriteMethod = true;
     }
 
     function vaultDataSchema() public pure returns (VaultDataSchema memory schema) {
-        schema.description = "Beacon-proxied Buyback Vault V2 (BSC lite). 100% BNB->taxtoken (2/3 vault reserve, 1/3 staker dividend). 1 day stake lock, no unstake cooldown, tweet-gated airdrop. No governance, no ecopool, no proposal voting. X controller (optional) can trigger buyback via tweet proof.";
+        schema.description = "Beacon-proxied Buyback Vault V2 (BSC lite). 100% BNB->taxtoken (2/3 vault reserve, 1/3 staker dividend). 1 day stake lock, no unstake cooldown, tweet-gated airdrop. No governance, no ecopool, no proposal voting. X controller (optional) can trigger buyback AND withdraw reserve via tweet proof.";
         schema.fields = new FieldDescriptor[](0);
         schema.isArray = false;
     }
@@ -1143,9 +1157,10 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
     // can theoretically be the relayer, but only the bound X handle can
     // authorize the action.
 
-    /// @notice Default duration of an airdrop round started via `setAirdropRoundByProof`.
-    ///         7 days. Owner/guardian can still call `setAirdropRound` with custom
-    ///         start/end times if needed.
+    /// @notice Default duration of an airdrop round (currently unused on BSC lite —
+    ///         owner/guardian calls `setAirdropRound` directly with custom timing).
+    ///         Kept at 7 days to match Robinhood behavior if X-proof airdrop is
+    ///         re-enabled in the future.
     uint256 public constant X_AIRDROP_DURATION = 7 days;
 
     /// @notice Recovery-only: rebind the X controller. Used when the bound X
@@ -1270,6 +1285,7 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
         _autoBuybackAutoUnchecked(effectiveMinOut);
     }
 
+    // ─── 2. Withdraw vault reserve via X proof ────────────────────────────
     /// @notice X controller: withdraws taxtoken from `taxtokenvaultPool` to a
     ///         destination address (parsed from the tweet). Staker dividend pool
     ///         is untouched.
@@ -1277,19 +1293,24 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
     /// @param to      Destination address (must match the address in the tweet).
     /// @param proof      Flap X General Proof.
     /// @param signature  Oracle signature.
-
-    /// @notice X controller: opens a new airdrop round with default time window
-    ///         (`now` → `now + X_AIRDROP_DURATION` = 7 days) and a built-in
-    ///         tweet-gate suffix (`#FlapAirdrop`).
-    /// @param amountPerClaimant Taxtokens per claim.
-    /// @param maxClaimants      Maximum claimants in this round.
-    /// @param proof      Flap X General Proof.
-    /// @param signature  Oracle signature.
-
-    /// @notice X controller: executes a previously-approved governance proposal.
-    ///         The proposal must already be in `Tallied` status (i.e. stakers
-    ///         have voted and it has been finalized via `finalizeApproval`).
-    /// @param proposalId The proposal ID to execute.
-    /// @param proof      Flap X General Proof.
-    /// @param signature  Oracle signature.
+    function withdrawVaultTaxtokenByProof(
+        uint256 amount,
+        address to,
+        BuybackTypes.XGeneralProof calldata proof,
+        bytes calldata signature
+    ) external nonReentrant {
+        _verifyXController(
+            proof,
+            signature,
+            string.concat(
+                "@flapdotshvault withdraw ",
+                _addrToLowerString(taxToken), " ", _addrToLowerString(address(this)),
+                " ", amount.toString(), " to ", _addrToLowerString(to)
+            )
+        );
+        // _withdrawVaultTaxtokenUnchecked does checks-effects-interactions
+        // (state update before external call) so nonReentrant on this function
+        // is belt-and-suspenders defense in depth.
+        _withdrawVaultTaxtokenUnchecked(amount, to);
+    }
 }
