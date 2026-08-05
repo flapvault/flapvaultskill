@@ -56,6 +56,62 @@ Always read the vault's `factory()` first and compare against the known factory 
 
 If `factory()` doesn't match any known factory, **refuse the action** and explain that the vault isn't recognized.
 
+## Chain resolution from tweet
+
+The X agent must determine the target chain from the user's tweet text. The mechanism differs by action type:
+
+### Launches (no vault yet → chain must be in tweet)
+
+The user must specify the chain explicitly. The agent MUST look for one of these tokens in the tweet (case-insensitive):
+
+| Token | Resolves to |
+|---|---|
+| `on BSC` / `on bnb` / `on bsc` / `on binance` / `bsc` / `bnb` / `binance` | BSC mainnet (chain 56) |
+| `on Robinhood` / `on RH` / `on robinhood` / `robinhood` / `rh` | Robinhood Chain (chain 4663) |
+| *(no chain token, or anything else)* | **Default: Robinhood** |
+
+**Canonical launch tweet format:**
+```
+@flapdotshvault launch <NAME> <buyTaxBps> <sellTaxBps> [on <chain>] [x=@<handle> <xId>]
+```
+
+**Examples:**
+```
+@flapdotshvault launch TEST 300 300                              # defaults to Robinhood
+@flapdotshvault launch TEST 300 300 on Robinhood                 # explicit Robinhood
+@flapdotshvault launch TEST 300 300 on BSC                       # explicit BSC
+@flapdotshvault launch KOPI 500 500 on BSC x=@alice 145621088    # BSC + X controller bound
+```
+
+If the user wants to be sure: ask them to include `on BSC` or `on Robinhood` explicitly. If they omit the chain token and the X agent has prior context (a previous tweet in the thread specifying chain), use that. Otherwise default to Robinhood.
+
+**When chain is ambiguous and could be a typo, ASK the user to confirm.** Never guess between BSC and Robinhood — these are different factories, different native tokens, different explorers. A wrong guess burns gas and the launch tweet is one-shot.
+
+### Post-launch actions (vault exists → chain from on-chain lookup)
+
+For `buyback`, `withdraw`, `airdrop`, `execute`, the user tweets the **vault address** (and token address). The chain is determined by:
+
+1. Read `factory()` from the vault contract.
+2. Compare against the whitelist:
+   - `0x39769E037884718dcA021BD6beaafFC902377B29` → Robinhood (chain 4663, native ETH)
+   - `<BSC_FACTORY>` → BSC mainnet (chain 56, native BNB)
+3. If factory doesn't match any known factory, refuse the action.
+4. The user does NOT need to specify the chain in the tweet — the on-chain lookup is authoritative.
+
+**Even if the user writes `on BSC` in a buyback tweet, ignore it** — chain is determined by the vault, not the tweet. If the tweet claims a chain that contradicts the on-chain factory, post a warning reply but proceed with the on-chain chain (don't silently switch).
+
+### Handling conflicting or missing chain hints
+
+| Situation | Resolution |
+|---|---|
+| Launch tweet, no chain token, no prior context | Default to **Robinhood**, post reply with `Launching on Robinhood (default). Reply "switch to BSC" to cancel + relaunch.` |
+| Launch tweet, chain token present | Use the specified chain |
+| Launch tweet, multiple chain tokens (e.g. `on BSC on Robinhood`) | Reject: `"Please specify only one chain. Tweet again with `on BSC` OR `on Robinhood`."` |
+| Launch tweet, unknown chain token (e.g. `on Polygon`) | Reject: `"Only BSC and Robinhood are supported. Tweet again with `on BSC` or `on Robinhood`."` |
+| Post-launch tweet, vault factory unknown | Reject: `"Vault factory not recognized. Are you sure this is a FlapVault?"` |
+| Post-launch tweet, `on BSC` in text but vault is on Robinhood | Ignore the text hint, proceed with on-chain Robinhood, append to reply: `⚠️ tweet said BSC but vault is on Robinhood — used Robinhood.` |
+| Post-launch tweet, vault factory on BSC + user calls `execute_proposal` | Reject: `"BSC lite has no governance. No execution path."` |
+
 ## Per-chain constants (read from `shared.js` ADDRESSES or set as env)
 
 The scripts' `shared.js` exports `ADDRESSES` indexed per chain. For BSC (once the refactor lands), expected constants:
@@ -89,7 +145,28 @@ The cron poll path (`poll-mentions.js`) does NOT invoke `launch.js` directly —
 - ❌ `set_airdrop_round` — reply with `"BSC vault (lite build) doesn't support X-proof airdrop round setup. Owner/guardian EOA only."`
 - ❌ `execute_proposal` — reply with `"BSC vault (lite build) has no governance. No execution path."`
 
-**Launch path applies to both chains.** The `launch.js` script will work on BSC once `shared.js` is refactored. Until then, BSC launches must go through `cast` or `forge` with the BSC factory address as `vaultFactory` in the `NewTokenV6WithVaultParams` tuple (field 25).
+**Launch path applies to both chains.** The `launch.js` script will work on BSC once `shared.js` is refactored. Until then, BSC launches must go through `cast` or `forge` with the BSC factory address as `vaultFactory` in the `NewTokenV6WithVaultParams` tuple (field 25). When invoking `launch.js` for BSC manually, set `CHAIN_ID=56` and `BUYBACK_VAULT_FACTORY=<BSC_FACTORY>` as env vars.
+
+**Canonical tweet formats by action:**
+
+```
+LAUNCH (chain from tweet text):
+  @flapdotshvault launch <NAME> <buyTaxBps> <sellTaxBps> [on BSC|on Robinhood] [x=@<handle> <xId>]
+
+BUYBACK (chain from vault.factory() — vault address in tweet):
+  @flapdotshvault buyback 0x<token> 0x<vault>
+
+WITHDRAW (Robinhood + BSC lite; chain from vault):
+  @flapdotshvault withdraw 0x<token> 0x<vault> <amount> to 0x<to>
+
+AIRDROP (Robinhood only; chain from vault):
+  @flapdotshvault airdrop 0x<token> 0x<vault> amount=<amt> max=<max>
+
+EXECUTE PROPOSAL (Robinhood only; chain from vault):
+  @flapdotshvault execute proposal 0x<token> 0x<vault> <id>
+```
+
+For buyback/withdraw/airdrop/execute, the tweet text is converted by the oracle into an `XGeneralProof` struct and verified on-chain. The canonical substring (used by `_verifyXController`) must EXACTLY match the format above — lowercase addresses, single space between tokens, `to` for withdraw destination.
 
 ## Environment
 - wallet: `X_AGENT_PRIVATE_KEY` or `FLAP_PRIV_KEY`
