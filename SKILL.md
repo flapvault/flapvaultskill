@@ -11,7 +11,7 @@ Cross-chain support for the BuybackVault pattern on Robinhood Chain and BSC main
 | Chain | Chain ID | Native | Factory | Vault variant | Status |
 |---|---|---|---|---|---|
 | **Robinhood Chain** | 4663 | ETH | `0x39769E037884718dcA021BD6beaafFC902377B29` | `v2.2` (full feature) | ✅ Live |
-| **BSC mainnet** | 56 | BNB | `<BSC_FACTORY>` (set after deploy) | `v2.2-bsc-lite` (no governance) | ⏳ Pending deploy |
+| **BSC mainnet** | 56 | BNB | `0xECD3f4b799f2FA090fCb68294FF6f2a2AF32c763` (set after deploy) | `v2.2-bsc-lite` (no governance) | ⏳ Live |
 
 ### Feature parity matrix
 
@@ -52,7 +52,7 @@ Always read the vault's `factory()` first and compare against the known factory 
 
 **Whitelist (add BSC factory address once deployed):**
 - `0x39769E037884718dcA021BD6beaafFC902377B29` → Robinhood (chain 4663, native ETH)
-- `<BSC_FACTORY>` → BSC mainnet (chain 56, native BNB)
+- `0xECD3f4b799f2FA090fCb68294FF6f2a2AF32c763` → BSC mainnet (chain 56, native BNB)
 
 If `factory()` doesn't match any known factory, **refuse the action** and explain that the vault isn't recognized.
 
@@ -94,7 +94,7 @@ For `buyback`, `withdraw`, `airdrop`, `execute`, the user tweets the **vault add
 1. Read `factory()` from the vault contract.
 2. Compare against the whitelist:
    - `0x39769E037884718dcA021BD6beaafFC902377B29` → Robinhood (chain 4663, native ETH)
-   - `<BSC_FACTORY>` → BSC mainnet (chain 56, native BNB)
+   - `0xECD3f4b799f2FA090fCb68294FF6f2a2AF32c763` → BSC mainnet (chain 56, native BNB)
 3. If factory doesn't match any known factory, refuse the action.
 4. The user does NOT need to specify the chain in the tweet — the on-chain lookup is authoritative.
 
@@ -145,7 +145,7 @@ The cron poll path (`poll-mentions.js`) does NOT invoke `launch.js` directly —
 - ❌ `set_airdrop_round` — reply with `"BSC vault (lite build) doesn't support X-proof airdrop round setup. Owner/guardian EOA only."`
 - ❌ `execute_proposal` — reply with `"BSC vault (lite build) has no governance. No execution path."`
 
-**Launch path applies to both chains.** The `launch.js` script will work on BSC once `shared.js` is refactored. Until then, BSC launches must go through `cast` or `forge` with the BSC factory address as `vaultFactory` in the `NewTokenV6WithVaultParams` tuple (field 25). When invoking `launch.js` for BSC manually, set `CHAIN_ID=56` and `BUYBACK_VAULT_FACTORY=<BSC_FACTORY>` as env vars.
+**Launch path applies to both chains.** The `launch.js` script will work on BSC once `shared.js` is refactored. Until then, BSC launches must go through `cast` or `forge` with the BSC factory address as `vaultFactory` in the `NewTokenV6WithVaultParams` tuple (field 25). When invoking `launch.js` for BSC manually, set `CHAIN_ID=56` and `BUYBACK_VAULT_FACTORY=0xECD3f4b799f2FA090fCb68294FF6f2a2AF32c763` as env vars.
 
 **Canonical tweet formats by action:**
 

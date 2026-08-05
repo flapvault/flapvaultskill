@@ -23,9 +23,9 @@ FlapVault Agent is the X (Twitter) front-end for the [FlapVault](https://github.
 | Chain | Chain ID | Native token | Status | Factory address |
 |---|---|---|---|---|
 | Robinhood | 4663 | ETH | Active (production) | `0x39769E037884718dcA021BD6beaafFC902377B29` |
-| **BSC mainnet** | **56** | **BNB** | **Active (new)** | `<to be set after deploy>` |
+| **BSC mainnet** | **56** | **BNB** | **Active (live)** | `0xECD3f4b799f2FA090fCb68294FF6f2a2AF32c763` |
 
-**Default chain for new launches:** BSC (chain 56). Set via `CHAIN_ID` env var in deployment.
+**Default chain for new launches:** depends on tweet (see SKILL.md "Chain resolution from tweet"). No default for the agent — must be specified by the user, or ask. Set via `CHAIN_ID` env var in deployment.
 
 ## Chain-specific context
 
