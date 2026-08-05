@@ -108,6 +108,54 @@ The FlapVault bot uses **two separate wallets** per chain, never the same funds:
 - Send direct messages (only reply to public mentions)
 - Mix up chain-specific addresses (e.g. Robinhood X_VERIFIER on a BSC vault)
 
+### Launch chain detection — read this before responding to `@flapdotshvault launch`
+
+**For launches, the user MUST specify the chain in the tweet text. The agent MUST detect it from the tweet, NOT from the vault (no vault exists yet).**
+
+Detection rules (case-insensitive substring match in tweet text):
+
+1. **Chain keyword present**:
+   - `on BSC` / `on bnb` / `on bsc` / `on binance` → chain = BSC mainnet (chain 56)
+   - `on Robinhood` / `on RH` / `on robinhood` / `on rh` → chain = Robinhood Chain (chain 4663)
+2. **No chain keyword** → **DO NOT LAUNCH. ASK THE USER.** Reply with the chain-clarification template below.
+3. **Multiple chain keywords** (e.g. `on BSC on Robinhood`) → reject, ask user to pick ONE.
+4. **Unknown chain** (e.g. `on Polygon`, `on ETH`, `on Base`) → reject, supported list is BSC + Robinhood only.
+
+**Reply template when chain is missing:**
+```
+@{handle} Which chain? Re-tweet with `on BSC` or `on Robinhood`:
+
+• Robinhood (chain 4663): ETH gas, factory 0x39769E...7B29 (full feature)
+• BSC mainnet (chain 56): BNB gas, factory 0xECD3f4b7...2c763 (lite, no governance)
+
+⚠️ Once launched, you can't switch chains. Please specify.
+```
+
+**Reply template when launching on BSC (chain confirmation before launch):**
+```
+@{handle} Got it — launching {NAME} on BSC mainnet. Confirming:
+
+• Chain: BSC (chain 56)
+• Buy tax: {buyTaxBps/100}%
+• Sell tax: {sellTaxBps/100}%
+• X controller: {if bound, show handle; else "none — set later via setXController"}
+• Factory: 0xECD3f4b799f2FA090fCb68294FF6f2a2AF32c763 (v2.2-bsc-lite)
+• Note: BSC vault has no governance + no X-proof airdrop setup. Buyback + withdraw via X proof are supported.
+
+Reply "confirm" to proceed, or "cancel" to abort.
+```
+
+Wait for the user's "confirm" reply before invoking `launch.js`. The confirm tweet's tweetId must be > original launch tweet's tweetId.
+
+**Pre-launch checklist for BSC launches:**
+- [ ] `RPC_URL` = `https://bsc-dataseed.binance.org` (not Robinhood)
+- [ ] `CHAIN_ID=56` (not 4663)
+- [ ] `BUYBACK_VAULT_FACTORY=0xECD3f4b799f2FA090fCb68294FF6f2a2AF32c763` (BSC factory, not 0x39769E...)
+- [ ] `X_AGENT_PRIVATE_KEY` wallet has ≥ 0.0005 BNB
+- [ ] Launch is the only `launch.js` invocation per tweetId (check `launched.json`)
+
+**Hard rule**: The agent MUST NOT default-to-Robinhood-or-BSC-and-launch. Always ASK if the chain is missing. The launch tweet is one-shot — guessing wrong wastes the user's tweet + burns gas.
+
 ## Chain-specific constants (load from shared.js ADDRESSES)
 
 The skill's `shared.js` exports `ADDRESSES` indexed by `CHAIN_ID`. Each chain has its own set of addresses. The agent must always read the right set.
@@ -132,19 +180,19 @@ For current reference (do NOT hardcode in replies — read from chain):
 This agent has access to the `flapvault` skill with these tools:
 - `launch_token` — launch new tax token (any supported chain)
 - `trigger_buyback` — trigger buyback (auto-detects chain)
-- `withdraw_taxtoken` — withdraw from reserve (auto-detects chain) — **NOT on BSC lite**
-- `set_airdrop_round` — start airdrop round (auto-detects chain) — **NOT on BSC lite**
-- `execute_proposal` — execute governance proposal (auto-detects chain) — **NOT on BSC lite**
+- `withdraw_taxtoken` — withdraw from reserve (auto-detects chain) — **supported on BSC lite via X proof** (`@flapdotshvault withdraw 0xtoken 0xvault <amount> to 0xto`)
+- `set_airdrop_round` — start airdrop round (auto-detects chain) — **NOT on BSC lite** (owner/guardian EOA only)
+- `execute_proposal` — execute governance proposal (auto-detects chain) — **NOT on BSC lite** (no governance)
 - `get_status` — read token/vault state (auto-detects chain)
 
 ### BSC lite feature gap
 
-The BSC vault is a "lite" build — it was refactored to fit BSC's 24KB contract size limit (EIP-170). Three feature families were removed:
+The BSC vault is a "lite" build — it was refactored to fit BSC's 24KB contract size limit (EIP-170). Two feature families were removed:
 - **Governance** (proposals, voting, eco-pool) — entirely removed; no execution path
-- **X-proof admin actions** for non-buyback operations (withdraw/airdrops via tweet proof) — removed
+- **X-proof admin actions** for airdrops (`setAirdropRoundByProof`) — removed; owner/guardian must call `setAirdropRound` directly
 - The factory spec version is `v2.2-bsc-lite` (vs `v2.2` for Robinhood)
 
-The bot must detect the chain first and refuse to call these verbs on BSC. If a user tweets `@flapdotshvault withdraw` on a BSC vault, reply: `"BSC vault (lite build) doesn't support X-proof admin actions. Withdraw via owner/guardian EOA only."`
+**X-proof withdraw IS supported on BSC lite.** The bot can call `withdrawVaultTaxtokenByProof(amount, to, proof, signature)` on a BSC vault, with the canonical tweet text `@flapdotshvault withdraw 0xtoken 0xvault <amount> to 0xto`. (The amount must match exactly what the user types in the tweet, just like Robinhood.)
 
 ## Response templates
 
