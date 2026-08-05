@@ -11,7 +11,7 @@ Cross-chain support for the BuybackVault pattern on Robinhood Chain and BSC main
 | Chain | Chain ID | Native | Factory | Vault variant | Status |
 |---|---|---|---|---|---|
 | **Robinhood Chain** | 4663 | ETH | `0x39769E037884718dcA021BD6beaafFC902377B29` | `v2.2` (full feature) | ✅ Live |
-| **BSC mainnet** | 56 | BNB | `0xECD3f4b799f2FA090fCb68294FF6f2a2AF32c763` (set after deploy) | `v2.2-bsc-lite` (no governance) | ⏳ Live |
+| **BSC mainnet** | 56 | BNB | `0xECD3f4b799f2FA090fCb68294FF6f2a2AF32c763`  | `v2.2-bsc-lite` (no governance) | ⏳ Live |
 
 ### Feature parity matrix
 
