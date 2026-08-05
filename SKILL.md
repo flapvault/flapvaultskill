@@ -18,6 +18,16 @@ Write actions validate chain 4663, contract code, vault/token pairing, controlle
 
 X-proof buyback submits `minTaxtokenOut=0`. When `lastGoodPrice` is zero, owner/guardian must first bootstrap with `autoBuybackAuto(minOut > 0)`.
 
+## Invariants
+
+**One launch per tweetId (1:1 dedup).** Before any `launch.js` invocation, you MUST:
+
+1. Read `launched.json` (in the skill root) and check the tweetId is not already present.
+2. Set `LAUNCH_TWEET_ID=<tweetId>` env var when invoking `launch.js`. The script refuses to run without it.
+3. On successful launch, write `{ tweetId, token, vault, txHash, block, name, taxes, xHandle, xId, at }` to `launched.json`.
+
+The cron poll path (`poll-mentions.js`) does NOT invoke `launch.js` directly — it only lists new mentions for the user to approve. Only the orchestrator (the chat LLM) calls `launch.js`, and it MUST pass `LAUNCH_TWEET_ID` every time.
+
 ## Environment
 - wallet: `X_AGENT_PRIVATE_KEY` or `FLAP_PRIV_KEY`
 - RPC: `RPC_URL` or `ALCHEMY_RPC_ROBINHOOD`
