@@ -59,7 +59,7 @@ interface ISwapRouter02 {
     function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
 }
 
-// Uniswap V2 Factory (Robinhood Chain: 0xcA143Ce32Fe78f1f7019d838670724e5259bB757)
+// Uniswap V2 Factory (Robinhood Chain: 0xcA143ce32fe78f1f7019D838670724e5259BB757)
 // `getPair(WETH, token)` returns the deterministic V2 pair address. Used to discover
 // the post-graduation V2 pool for taxtoken buyback (Flap V2_MIGRATOR creates the
 // pair at graduation; the vault never has to pre-register it).
@@ -187,7 +187,7 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
 
     /// @notice Uniswap V2 Factory on BSC. `getPair(WETH, taxtoken)` returns the
     ///         V2 pair address created by Flap's V2_MIGRATOR at token graduation.
-    address public constant V2_FACTORY = 0xcA143Ce32Fe78f1f7019d838670724e5259bB757;
+    address public constant V2_FACTORY = 0xcA143ce32fe78f1f7019D838670724e5259BB757;
 
     /// @notice Uniswap V2 Router02 on BSC. Supports `swapExactETHForTokensSupportingFeeOnTransferTokens`
     ///         which is REQUIRED for tax-token buyback (the pair's output transfer has tax).
@@ -213,10 +213,10 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
 
     /// @notice Reserve of taxtokens owed to stakers as dividends. Funded with 1/3 of
     ///         each buyback output (when there are stakers). When no stakers are present,
-    ///         the holder portion is routed to `taxtokenvaultPool` (audit v2 F2).
+    ///         the holder portion is routed to `taxtokenvaultPool` instead (see
+    ///         `_autoBuybackAutoUnchecked`).
     uint256 public taxtokenholderPool;            // slot 4 (was slot 6 in V1)
-    // Slot 5 (was slot 7 in V1)
-    uint256 public ecoEthPool;
+
     // Slot 6 (was slot 8 in V1)
     uint256 public totalStaked;
     // Slot 7 (was slot 9 in V1)
@@ -324,23 +324,6 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
         uint256 lockUntil;
     }
     mapping(address => StakerInfo) public stakers;
-
-    // ─── Governance ────────────────────────────────────────────────────────
-    uint256 public proposalCount;
-    // status: 0=PendingApproval, 1=Selection, 2=Rejected, 3=Tallied, 4=Executed
-    struct Proposal { string title; uint256 createdAt; bool tallied; bool executed; uint256 winningOption; address ecoRecipient; uint256 approveFor; uint256 approveAgainst; uint256 snapshotTotalStaked; uint256 selectionStart; uint8 status; }
-    // v3Fee replaces v3Pool: SwapRouter02 derives the pool from (WETH, token, fee).
-    struct Option { address token; uint8 swapType; uint24 v3Fee; BuybackTypes.PoolKey v4Key; bytes hookData; address rewardEcoRecipient; string label; uint256 votePower; uint256 minTokensOut; }
-    mapping(uint256 => Proposal) public proposals;
-    mapping(uint256 => mapping(uint256 => Option)) public proposalOptions;
-    mapping(uint256 => uint256) public proposalOptionCount;
-    mapping(uint256 => mapping(address => bool)) public hasVoted;
-    mapping(uint256 => mapping(address => uint256)) public voteSnapshot;
-    // F7: latest proposalId a user voted on (0 = none), gates unstaking during active votes.
-    mapping(address => uint256) public lastVotedProposal;
-    mapping(uint256 => mapping(address => bool)) public hasApprovalVoted;
-    mapping(address => uint256) public lastApprovalProposal;
-
     // ─── Airdrop ───────────────────────────────────────────────────────────
     struct AirdropRound {
         uint256 amountPerClaimant;
@@ -365,7 +348,6 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
     event Unstaked(address indexed user, uint256 amount);
     event DividendClaimed(address indexed user, uint256 amount);
     event Buyback(uint256 ethIn, uint256 taxtokenOut, uint256 toVault, uint256 toHolders);
-    event EcoBuyback(uint256 indexed proposalId, address indexed token, uint256 ethIn, uint256 tokenOut, address recipient);
     event AirdropRoundSet(uint256 indexed roundId, uint256 amountPerClaimant, uint256 startTime, uint256 endTime, uint256 maxClaimants, string substringSuffix);
     event AirdropClaimed(uint256 indexed roundId, address indexed claimant, uint256 amount, uint256 tweetId);
     event EmergencyEthWithdraw(address indexed to, uint256 amount);
@@ -518,27 +500,25 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
     ///      proof layer provides equivalent authorization to the owner/guardian
     ///      role check, so we don't need to add an "X controller" role.
     function _autoBuybackAutoUnchecked(uint256 minTaxtokenOut) internal {
-        // F5/F6: only process NEW eth (exclude already-reserved ecoEthPool).
-        uint256 ethBal = address(this).balance - ecoEthPool;
+        // BSC variant: no ecoEthPool (governance/proposals removed to fit 24KB).
+        // 100% of new BNB is used to buy taxtoken.
+        uint256 ethBal = address(this).balance;
         require(ethBal >= MIN_BUYBACK, "Below min buyback");
-        uint256 taxtokenPortion = (ethBal * 75) / 100;
-        ecoEthPool += (ethBal * 25) / 100;
         uint256 taxtokenBefore = IERC20(taxtoken).balanceOf(address(this));
-        _swapEthForTaxtoken(taxtokenPortion, minTaxtokenOut);
+        _swapEthForTaxtoken(ethBal, minTaxtokenOut);
         uint256 taxtokenOut = IERC20(taxtoken).balanceOf(address(this)) - taxtokenBefore;
         require(taxtokenOut >= minTaxtokenOut, "Slippage");
         // AUDIT FIX (round 4 #3): record the actual execution price as
         // `lastGoodPrice` for the X-proof default-minOut floor. This is
         // done BEFORE the split so the price reflects the raw buyback
         // outcome (BNB in -> taxtoken out).
-        if (taxtokenOut > 0 && taxtokenPortion > 0) {
-            lastGoodPrice = (taxtokenOut * 1e18) / taxtokenPortion;
-            lastGoodEthAmount = taxtokenPortion;
+        if (taxtokenOut > 0 && ethBal > 0) {
+            lastGoodPrice = (taxtokenOut * 1e18) / ethBal;
+            lastGoodEthAmount = ethBal;
         }
-        // Split mirrors the original BNB share: 50% of pre-buyback BNB ends up
-        // in the vault reserve (= 2/3 of taxtokenOut), 25% goes to stakers
-        // (= 1/3 of taxtokenOut). The formula `(out * 50) / 75` gives 2/3 of `out`.
-        uint256 toVault = (taxtokenOut * 50) / 75;
+        // Split: 2/3 of taxtoken out to vault reserve, 1/3 to staker dividend.
+        // (Mirrors the original BNB share: 50% vault + 25% stakers was the 75% portion.)
+        uint256 toVault = (taxtokenOut * 2) / 3;
         uint256 toHolders = taxtokenOut - toVault;
         // F-v2-2: with no stakers, holder portion is unattributable; route it to vault reserve.
         if (totalStaked > 0) {
@@ -748,23 +728,6 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
         emit Staked(msg.sender, received);
     }
 
-    // F7: true if user voted on a proposal whose voting window is still open.
-    /// @notice Returns whether `user` has an active vote on the current proposal.
-    /// @param user The staker address to query.
-    /// @return True if the user has voted on the latest (most recent) proposal that is not yet executed.
-    function hasActiveVote(address user) public view returns (bool) {
-        uint256 apid = lastApprovalProposal[user];
-        if (apid != 0) {
-            Proposal storage ap = proposals[apid];
-            if (ap.status == 0 && block.timestamp < ap.createdAt + APPROVAL_DURATION) return true;
-        }
-        uint256 pid = lastVotedProposal[user];
-        if (pid != 0) {
-            Proposal storage p = proposals[pid];
-            if (p.status == 1 && block.timestamp < p.selectionStart + SELECTION_DURATION) return true;
-        }
-        return false;
-    }
 
     /// @notice Requests withdrawal of `amount` of staked `taxToken`.
     /// @param amount The number of staked `taxToken` wei to unstake. Must be ≤ staked amount.
@@ -773,10 +736,6 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
     ///      immediately callable. Pending dividends are auto-claimed at request time.
     function requestUnstake(uint256 amount) external nonReentrant {
         StakerInfo storage s = stakers[msg.sender];
-        require(amount > 0 && amount <= s.stakedAmount, "Bad amount");
-        // F7 (Option C): cannot unstake while your vote is still open.
-        require(!hasActiveVote(msg.sender), "Active vote pending");
-        // AUDIT FIX (round 3 #3): stake lock. Cannot request unstake until
         // the lock period elapses (prevents JIT front-running of dividends).
         // The lock REPLACES the 24h unstake cooldown (no double wait).
         require(block.timestamp >= s.lockUntil, "Stake locked");
@@ -887,201 +846,30 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
     /// @param hookData             V4 hook data (for V4 options).
     /// @param rewardEcoRecipients  Eco reward recipient for each option.
     /// @param minTokensOuts        Minimum output for each option's eco swap (slippage floor).
-    function createProposal(
-        string calldata title,
-        string[] calldata labels,
-        address[] calldata tokens,
-        uint8[] calldata swapTypes,
-        uint24[] calldata v3Fees,
-        BuybackTypes.PoolKey[] calldata poolKeys,
-        bytes[] calldata hookData,
-        address[] calldata rewardEcoRecipients,
-        uint256[] calldata minTokensOuts
-    ) external onlyOwnerOrGuardian {
-        // BSC guard: V4 (swapType=1) is disabled on BSC because POOL_MANAGER = 0x0.
-        // Fail-fast at proposal creation so the owner sees the error before voting
-        // burns gas. (Original Robinhood code has no such check — V4 is supported there.)
-        for (uint256 i = 0; i < swapTypes.length; i++) {
-            require(swapTypes[i] == 0, "BSC: V4 (swapType=1) not supported");
-        }
-        require(tokens.length >= 2 && tokens.length <= 5, "2-5 options");
-        require(
-            tokens.length == labels.length &&
-            tokens.length == swapTypes.length &&
-            tokens.length == v3Fees.length &&
-            tokens.length == poolKeys.length &&
-            tokens.length == hookData.length &&
-            tokens.length == rewardEcoRecipients.length &&
-            tokens.length == minTokensOuts.length,
-            "Len mismatch"
-        );
-        require(totalStaked > 0, "No stakers");
-        uint256 pid = ++proposalCount;
-        Proposal storage p = proposals[pid];
-        p.title = title;
-        p.createdAt = block.timestamp;
-        // AUDIT FIX (round 5 #3): snapshotTotalStaked is computed from
-        // the per-staker snapshot loop below, using only registered
-        // stakers' stakes (not the global totalStaked which includes
-        // sub-threshold dust stakers that can't vote).
-        p.status = 0;
-        // AUDIT FIX #6: snapshot per-staker stake at proposal creation.
-        // This prevents vote-capture griefing: an attacker can no longer
-        // stake a large amount, vote to dominate, then unstake. Their stake
-        // is captured here at createProposal time and used as their vote
-        // power. Cost: O(stakerCount) SSTOREs. For thousands of stakers,
-        // this may exceed the block gas limit on Robinhood. The Guardian
-        // should ensure stakerCount stays manageable (e.g. by capping
-        // unique stakers via off-chain coordination).
-        uint256 n = stakerCount;
-        // AUDIT FIX (round 5 #3): snapshotTotalStaked is now the SUM
-        // of per-staker snapshots across currently-registered stakers,
-        // not the global totalStaked. Previously, sub-threshold dust
-        // stakers (stake < MIN_REGISTRATION_STAKE) inflated the
-        // quorum denominator without being able to contribute vote
-        // power, allowing an attacker to split holdings into many
-        // sub-threshold stakes and block proposals from reaching
-        // quorum. Only registered stakers receive a non-zero
-        // voteSnapshot (set below), so summing them is the correct
-        // votable denominator.
-        uint256 votableTotal;
-        for (uint256 i = 1; i <= n; i++) {
-            address staker = stakerList[i];
-            uint256 stake = stakers[staker].stakedAmount;
-            if (stake > 0) {
-                voteSnapshot[pid][staker] = stake;
-                votableTotal += stake;
-            }
-        }
-        p.snapshotTotalStaked = votableTotal;
-        proposalOptionCount[pid] = tokens.length;
-        for (uint256 i = 0; i < tokens.length; i++) {
-            require(minTokensOuts[i] > 0, "minOut=0");
-            require(rewardEcoRecipients[i] != address(0), "recipient=0");
-            Option storage opt = proposalOptions[pid][i];
-            opt.token = tokens[i];
-            opt.swapType = swapTypes[i];
-            opt.v3Fee = v3Fees[i];
-            opt.v4Key = poolKeys[i];
-            opt.hookData = hookData[i];
-            opt.rewardEcoRecipient = rewardEcoRecipients[i];
-            opt.label = labels[i];
-            opt.minTokensOut = minTokensOuts[i];
-        }
-    }
 
     /// @notice Stakers cast their approval vote on `proposalId` (phase 1 of 2-phase governance).
     /// @param proposalId The id of the proposal to vote on.
     /// @param approve    True to vote in favor, false to vote against.
     /// @dev Voting power is proportional to the caller's staked `taxToken` at the time of the vote.
-    function voteApproval(uint256 proposalId, bool approve) external {
-        Proposal storage p = proposals[proposalId];
-        require(p.createdAt != 0, "No proposal");
-        require(p.status == 0, "Not in approval");
-        // AUDIT FIX (round 5 #1): require the caller is still in the
-        // governance registry (stakerIndex != 0). Round 3 #4 only
-        // checked stakedAmount > 0, which a staker bypassed by
-        // partial-unstaking to 1 wei (still > 0) to retain snapshot
-        // vote power while divesting real stake. The registry is
-        // evicted at requestUnstake() when remaining stake drops
-        // below MIN_REGISTRATION_STAKE, so this check ensures the
-        // staker still backs their vote with registry-eligible stake.
-        require(stakerIndex[msg.sender] != 0, "Not registered");
-        require(stakers[msg.sender].stakedAmount > 0, "Not staked");
-        require(block.timestamp < p.createdAt + APPROVAL_DURATION, "Approval closed");
-        require(!hasApprovalVoted[proposalId][msg.sender], "Already voted");
-        // AUDIT FIX #6: use the per-staker snapshot captured at createProposal,
-        // not the live stake. This prevents vote-capture griefing (attacker
-        // stakes after seeing the proposal, votes, unstakes after).
-        uint256 power = voteSnapshot[proposalId][msg.sender];
-        require(power > 0, "No staked power");
-        hasApprovalVoted[proposalId][msg.sender] = true;
-        lastApprovalProposal[msg.sender] = proposalId;
-        if (approve) { p.approveFor += power; } else { p.approveAgainst += power; }
-        uint256 quorum = p.snapshotTotalStaked / 2 + 1;
-        if (p.approveFor >= quorum) {
-            p.status = 1;
-            p.selectionStart = block.timestamp;
-        } else if (p.approveAgainst >= quorum) {
-            p.status = 2;
-        }
-    }
 
     /// @notice Closes the approval phase of a proposal. If approved, opens the selection phase.
     /// @param proposalId The id of the proposal to finalize.
     /// @dev Anyone can call this once the approval window has elapsed. The proposal transitions
     ///      from `PendingApproval` to `Selection` (if approved) or `Rejected` (if not).
-    function finalizeApproval(uint256 proposalId) external {
-        Proposal storage p = proposals[proposalId];
-        require(p.createdAt != 0, "No proposal");
-        require(p.status == 0, "Not in approval");
-        require(block.timestamp >= p.createdAt + APPROVAL_DURATION, "Approval open");
-        uint256 quorum = p.snapshotTotalStaked / 2 + 1;
-        if (p.approveFor >= quorum && p.approveFor > p.approveAgainst) {
-            p.status = 1;
-            p.selectionStart = block.timestamp;
-        } else {
-            p.status = 2;
-        }
-    }
 
     /// @notice Stakers cast their vote for one of the 4 options (phase 2 of 2-phase governance).
     /// @param proposalId The id of the proposal to vote on.
     /// @param optionId   The id of the chosen option (0..3).
-    function vote(uint256 proposalId, uint256 optionId) external {
-        Proposal storage p = proposals[proposalId];
-        require(p.createdAt != 0, "No proposal");
-        require(p.status == 1, "Not in selection");
-        // AUDIT FIX (round 5 #1): same registry check as voteApproval.
-        // Caller must still be a registered staker to back their
-        // selection vote with real (registry-eligible) stake.
-        require(stakerIndex[msg.sender] != 0, "Not registered");
-        require(stakers[msg.sender].stakedAmount > 0, "Not staked");
-        require(block.timestamp < p.selectionStart + SELECTION_DURATION, "Voting closed");
-        require(!hasVoted[proposalId][msg.sender], "Already voted");
-        require(optionId < proposalOptionCount[proposalId], "Bad option");
-        // AUDIT FIX #6: use the per-staker snapshot captured at createProposal.
-        // (voteSnapshot[proposalId][msg.sender] was already set by
-        // createProposal's per-staker loop, or by a prior approval vote.
-        // For stakers who didn't exist at createProposal time, power is 0.)
-        uint256 power = voteSnapshot[proposalId][msg.sender];
-        require(power > 0, "No staked power");
-        hasVoted[proposalId][msg.sender] = true;
-        lastVotedProposal[msg.sender] = proposalId;
-        proposalOptions[proposalId][optionId].votePower += power;
-    }
 
     /// @notice Closes the selection phase and tallies votes for `proposalId`.
     /// @param proposalId The id of the proposal to tally.
     /// @dev Anyone can call this once the selection window has elapsed. The winning option
     ///      is set on the proposal; the proposal transitions to `Tallied` state.
-    function tallyProposal(uint256 proposalId) external {
-        Proposal storage p = proposals[proposalId];
-        require(p.createdAt != 0, "No proposal");
-        require(p.status == 1, "Not in selection");
-        require(block.timestamp >= p.selectionStart + SELECTION_DURATION, "Voting still open");
-        require(!p.tallied, "Already tallied");
-        p.tallied = true;
-        p.status = 3;
-        uint256 winner = 0;
-        uint256 maxPower = 0;
-        for (uint256 i = 0; i < proposalOptionCount[proposalId]; i++) {
-            if (proposalOptions[proposalId][i].votePower > maxPower) {
-                maxPower = proposalOptions[proposalId][i].votePower;
-                winner = i;
-            }
-        }
-        p.winningOption = winner;
-        p.ecoRecipient = proposalOptions[proposalId][winner].rewardEcoRecipient;
-    }
 
     /// @notice Owner or Guardian: executes a tallied proposal by performing its eco swap.
     /// @param proposalId The id of the tallied proposal to execute.
     /// @dev Routes the eco BNB through V3 (or V4, depending on the winning option's `swapType`).
     ///      Reverts if the proposal is not in `Tallied` state. Transitions to `Executed`.
-    function executeProposal(uint256 proposalId) external onlyOwnerOrGuardian nonReentrant {
-        _executeProposalUnchecked(proposalId);
-    }
 
     /// @notice Internal version of `executeProposal` that skips the
     ///         `onlyOwnerOrGuardian` role check. Only callable from within this
@@ -1089,90 +877,13 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
     ///         verified by `onlyXController`). Logic is identical to
     ///         `executeProposal`; we duplicate the body to avoid adding a
     ///         privileged "X controller" role to `executeProposal` itself.
-    function _executeProposalUnchecked(uint256 proposalId) internal {
-        Proposal storage p = proposals[proposalId];
-        require(p.tallied, "Not tallied");
-        require(!p.executed, "Already executed");
-        p.executed = true;
-        p.status = 4;
-        Option storage opt = proposalOptions[proposalId][p.winningOption];
-        uint256 minTokensOut = opt.minTokensOut;
-        require(minTokensOut > 0, "minOut=0");
-        uint256 ethToSwap = ecoEthPool;
-        require(ethToSwap > 0, "Empty eco pool");
-        ecoEthPool = 0;
-        uint256 out;
-        if (opt.swapType == 0) {
-            out = _executeV3Swap(opt.token, opt.v3Fee, ethToSwap, opt.rewardEcoRecipient, minTokensOut);
-        } else {
-            out = _executeV4Swap(opt.v4Key, opt.hookData, opt.token, ethToSwap, opt.rewardEcoRecipient, minTokensOut);
-        }
-        emit EcoBuyback(proposalId, opt.token, ethToSwap, out, opt.rewardEcoRecipient);
-    }
 
-    // ─── Eco V3 buyback via Uniswap V3 SwapRouter02.exactInputSingle (UNCHANGED) ─
-    function _executeV3Swap(address tokenOut, uint24 fee, uint256 ethAmount, address recipient, uint256 minOut)
-        internal returns (uint256 amountOut)
-    {
-        IWETH(WETH).deposit{value: ethAmount}();
-        require(IERC20(WETH).approve(SWAP_ROUTER_02, ethAmount), "approve failed");
-        amountOut = ISwapRouter02(SWAP_ROUTER_02).exactInputSingle(
-            ISwapRouter02.ExactInputSingleParams({
-                tokenIn: WETH,
-                tokenOut: tokenOut,
-                fee: fee,
-                recipient: recipient,
-                amountIn: ethAmount,
-                amountOutMinimum: minOut,
-                sqrtPriceLimitX96: 0
-            })
-        );
-    }
 
-    // ─── Eco V4 buyback via the real PoolManager (UNCHANGED) ──────────────
-    function _executeV4Swap(BuybackTypes.PoolKey memory key, bytes memory hookData, address tokenOut, uint256 ethAmount, address recipient, uint256 minOut)
-        internal returns (uint256 out)
-    {
-        IWETH(WETH).deposit{value: ethAmount}();
-        _v4OwedOut = 0;
-        POOL_MANAGER.unlock(abi.encode(key, hookData, ethAmount, tokenOut));
-        out = _v4OwedOut;
-        require(out >= minOut, "Slippage");
-        require(IERC20(tokenOut).transfer(recipient, out), "transfer failed");
-    }
 
     /// @notice Uniswap V4 PoolManager callback — invoked by the PoolManager during `unlock`.
     /// @param data Encoded callback payload (selector + args).
     /// @return Result of the callback.
     /// @dev Only callable by the configured PoolManager. Performs the V4 swap + settle + take.
-    function unlockCallback(bytes calldata data) external returns (bytes memory) {
-        require(msg.sender == address(POOL_MANAGER), "Bad PM");
-        (BuybackTypes.PoolKey memory key, bytes memory hookData, uint256 ethAmount, address tokenOut) =
-            abi.decode(data, (BuybackTypes.PoolKey, bytes, uint256, address));
-        // We always sell WETH (the input) for tokenOut. zeroForOne is true when WETH is currency0.
-        bool zeroForOne = (key.currency0 == WETH);
-        BuybackTypes.SwapParams memory sp = BuybackTypes.SwapParams({
-            zeroForOne: zeroForOne,
-            amountSpecified: -int256(ethAmount),
-            sqrtPriceLimitX96: zeroForOne
-                ? uint160(4295128740)                                             // MIN_SQRT_PRICE + 1
-                : uint160(1461446703485210103287273052203988822378723970341)      // MAX_SQRT_PRICE - 1
-        });
-        int256 delta = POOL_MANAGER.swap(key, sp, hookData);
-        int128 amount0 = int128(delta >> 128);
-        int128 amount1 = int128(delta);
-        // Pay the WETH we owe: sync WETH, transfer it to the PoolManager, then settle (no native value).
-        POOL_MANAGER.sync(WETH);
-        require(IWETH(WETH).transfer(address(POOL_MANAGER), ethAmount), "WETH transfer failed");
-        POOL_MANAGER.settle();
-        // Output is the opposite currency: currency1 when zeroForOne, else currency0.
-        int256 gained = zeroForOne ? int256(amount1) : int256(amount0);
-        gained = gained < 0 ? -gained : gained;
-        require(gained > 0, "No output");
-        _v4OwedOut = uint256(gained);
-        POOL_MANAGER.take(tokenOut, address(this), uint256(gained));
-        return "";
-    }
 
     // ─── Airdrop (UNCHANGED logic, renamed) ────────────────────────────────
     /// @notice Owner or Guardian: configures an airdrop round.
@@ -1362,8 +1073,8 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
 
     function vaultUISchema() public pure virtual override returns (VaultUISchema memory schema) {
         schema.vaultType = "BuybackVaultBscV2";
-        schema.description = "Auto buyback vault: 75% BNB->taxtoken (50% vault reserve, 25% staker dividend, in original BNB terms; 2/3 + 1/3 of buyback out in token terms) + 25% BNB ecosystem governance; staking, snapshot voting, tweet-gated airdrop";
-        schema.methods = new VaultMethodSchema[](6);
+        schema.description = "Auto buyback vault (BSC lite): 100% BNB->taxtoken (2/3 vault reserve, 1/3 staker dividend) + staking (1 day lock) + tweet-gated airdrop. No governance, no ecopool, no proposal voting - pure buyback. X controller can trigger buyback via tweet proof.";
+        schema.methods = new VaultMethodSchema[](5);
 
         schema.methods[0].name = "autoBuybackAuto";
         schema.methods[0].description = "Triggers automatic buyback. Only owner or guardian.";
@@ -1388,32 +1099,25 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
         schema.methods[3].outputs = new FieldDescriptor[](1);
         schema.methods[3].outputs[0] = FieldDescriptor("amount", "uint256", "Claimable taxtoken amount", 18);
 
-        schema.methods[4].name = "vote";
-        schema.methods[4].description = "Vote on a governance proposal (power = staked amount snapshot).";
-        schema.methods[4].inputs = new FieldDescriptor[](2);
-        schema.methods[4].inputs[0] = FieldDescriptor("proposalId", "uint256", "Proposal ID", 0);
-        schema.methods[4].inputs[1] = FieldDescriptor("optionId", "uint256", "Option ID", 0);
-        schema.methods[4].isWriteMethod = true;
-
-        schema.methods[5].name = "claimAirdropWithTweet";
-        schema.methods[5].description = "Claim tweet-gated airdrop. Tweet '0x<addr> <suffix>' then submit Flap oracle proof. Takes XGeneralProof struct (tweetId, xHandle, xId, substring) + oracle signature.";
+        schema.methods[4].name = "claimAirdropWithTweet";
+        schema.methods[4].description = "Claim tweet-gated airdrop. Tweet '0x<addr> <suffix>' then submit Flap oracle proof. Takes XGeneralProof struct (tweetId, xHandle, xId, substring) + oracle signature.";
         // AUDIT FIX #1: must match the actual function signature
         // `claimAirdropWithTweet(BuybackTypes.XGeneralProof calldata proof, bytes calldata signature)`.
         // The struct fields are: tweetId(uint128), xHandle(string), xId(uint128), substring(string).
         // NOT 5 flat inputs with uint256 for tweetId/xId.
-        schema.methods[5].inputs = new FieldDescriptor[](2);
-        schema.methods[5].inputs[0] = FieldDescriptor(
+        schema.methods[4].inputs = new FieldDescriptor[](2);
+        schema.methods[4].inputs[0] = FieldDescriptor(
             "proof",
             "XGeneralProof",
             "Flap X General Proof struct: {tweetId: uint128, xHandle: string, xId: uint128, substring: string}",
             0
         );
-        schema.methods[5].inputs[1] = FieldDescriptor("signature", "bytes", "Flap oracle signature over the proof", 0);
-        schema.methods[5].isWriteMethod = true;
+        schema.methods[4].inputs[1] = FieldDescriptor("signature", "bytes", "Flap oracle signature over the proof", 0);
+        schema.methods[4].isWriteMethod = true;
     }
 
     function vaultDataSchema() public pure returns (VaultDataSchema memory schema) {
-        schema.description = "Beacon-proxied Buyback Vault V2. 75% BNB->taxtoken (50% vault reserve, 25% staker dividend, in original BNB terms; 2/3 + 1/3 of buyback out in token terms), 25% BNB->eco governance pool. 1 day stake lock, no unstake cooldown, snapshot voting, tweet-gated airdrop. 12h voting, V3+V4 swap.";
+        schema.description = "Beacon-proxied Buyback Vault V2 (BSC lite). 100% BNB->taxtoken (2/3 vault reserve, 1/3 staker dividend). 1 day stake lock, no unstake cooldown, tweet-gated airdrop. No governance, no ecopool, no proposal voting. X controller (optional) can trigger buyback via tweet proof.";
         schema.fields = new FieldDescriptor[](0);
         schema.isArray = false;
     }
@@ -1554,20 +1258,18 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
         // Derive the default floor from lastGoodPrice. Since the
         // contract is the sole decision-maker (per the require above),
         // the relayer cannot influence this value.
-        uint256 ethBal = address(this).balance - ecoEthPool;
-        uint256 taxtokenPortion = (ethBal * 75) / 100;
+        uint256 ethBal = address(this).balance;
         uint256 effectiveMinOut = 1; // safety net if lastGoodPrice > 0 path fails
-        if (lastGoodPrice > 0 && taxtokenPortion > 0) {
+        if (lastGoodPrice > 0 && ethBal > 0) {
             // lastGoodPrice = taxtoken per 1 BNB (scaled 1e18).
             // defaultMinOut = (price * currentEthAmount) / 1e18 * 95%.
-            effectiveMinOut = (lastGoodPrice * taxtokenPortion * 95) / (100 * 1e18);
+            effectiveMinOut = (lastGoodPrice * ethBal * 95) / (100 * 1e18);
             if (effectiveMinOut == 0) effectiveMinOut = 1;
         }
         // _autoBuybackAutoUnchecked has its own nonReentrant guard.
         _autoBuybackAutoUnchecked(effectiveMinOut);
     }
 
-    // ─── 2. Withdraw vault reserve via X proof ────────────────────────────
     /// @notice X controller: withdraws taxtoken from `taxtokenvaultPool` to a
     ///         destination address (parsed from the tweet). Staker dividend pool
     ///         is untouched.
@@ -1575,28 +1277,7 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
     /// @param to      Destination address (must match the address in the tweet).
     /// @param proof      Flap X General Proof.
     /// @param signature  Oracle signature.
-    function withdrawVaultTaxtokenByProof(
-        uint256 amount,
-        address to,
-        BuybackTypes.XGeneralProof calldata proof,
-        bytes calldata signature
-    ) external nonReentrant {
-        _verifyXController(
-            proof,
-            signature,
-            string.concat(
-                "@flapdotshvault withdraw ",
-                _addrToLowerString(taxToken), " ", _addrToLowerString(address(this)),
-                " ", amount.toString(), " to ", _addrToLowerString(to)
-            )
-        );
-        // _withdrawVaultTaxtokenUnchecked does checks-effects-interactions
-        // (state update before external call) so nonReentrant on this function
-        // is belt-and-suspenders defense in depth.
-        _withdrawVaultTaxtokenUnchecked(amount, to);
-    }
 
-    // ─── 3. Set airdrop round via X proof ────────────────────────────────
     /// @notice X controller: opens a new airdrop round with default time window
     ///         (`now` → `now + X_AIRDROP_DURATION` = 7 days) and a built-in
     ///         tweet-gate suffix (`#FlapAirdrop`).
@@ -1604,61 +1285,11 @@ contract BuybackVaultBsc is Initializable, VaultBaseV2, ReentrancyGuardUpgradeab
     /// @param maxClaimants      Maximum claimants in this round.
     /// @param proof      Flap X General Proof.
     /// @param signature  Oracle signature.
-    function setAirdropRoundByProof(
-        uint256 amountPerClaimant,
-        uint256 maxClaimants,
-        BuybackTypes.XGeneralProof calldata proof,
-        bytes calldata signature
-    ) external nonReentrant returns (uint256 roundId) {
-        _verifyXController(
-            proof,
-            signature,
-            string.concat(
-                "@flapdotshvault airdrop ",
-                _addrToLowerString(taxToken), " ", _addrToLowerString(address(this)),
-                " amount=", amountPerClaimant.toString(),
-                " max=", maxClaimants.toString()
-            )
-        );
-        require(amountPerClaimant > 0, "zero amount");
-        require(maxClaimants > 0, "zero max");
-        roundId = ++airdropRoundCount;
-        airdropRounds[roundId] = AirdropRound({
-            amountPerClaimant: amountPerClaimant,
-            startTime: block.timestamp,
-            endTime: block.timestamp + X_AIRDROP_DURATION,
-            maxClaimants: maxClaimants,
-            totalClaimed: 0,
-            substringSuffix: "#FlapAirdrop",
-            active: true
-        });
-        emit AirdropRoundSet(roundId, amountPerClaimant, block.timestamp, block.timestamp + X_AIRDROP_DURATION, maxClaimants, "#FlapAirdrop");
-    }
 
-    // ─── 4. Execute proposal via X proof ──────────────────────────────────
     /// @notice X controller: executes a previously-approved governance proposal.
     ///         The proposal must already be in `Tallied` status (i.e. stakers
     ///         have voted and it has been finalized via `finalizeApproval`).
     /// @param proposalId The proposal ID to execute.
     /// @param proof      Flap X General Proof.
     /// @param signature  Oracle signature.
-    function executeProposalByProof(
-        uint256 proposalId,
-        BuybackTypes.XGeneralProof calldata proof,
-        bytes calldata signature
-    ) external nonReentrant {
-        _verifyXController(
-            proof,
-            signature,
-            string.concat(
-                "@flapdotshvault execute proposal ",
-                _addrToLowerString(taxToken), " ", _addrToLowerString(address(this)),
-                " ", proposalId.toString()
-            )
-        );
-        // _executeProposalUnchecked has its own nonReentrant guard. The X
-        // proof layer has already proven the action; this just runs the
-        // proposal-execution logic without the role check.
-        _executeProposalUnchecked(proposalId);
-    }
 }

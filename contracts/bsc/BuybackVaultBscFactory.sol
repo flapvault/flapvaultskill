@@ -1,5 +1,5 @@
 // =====================================================================
-//  ⚠️  THIS IS THE BSC VARIANT (BNB Smart Chain, chain 56)
+//  ⚠️  THIS IS THE BSC VARIANT (BNB Smart Chain, chain 56) — "LITE" build
 //  Original Robinhood Chain (chain 4663) version: ./BuybackVaultFactory.sol
 //  All chain-specific addresses updated to BSC equivalents:
 //    - WETH (constant) = WBNB (token)
@@ -8,7 +8,24 @@
 //    - X       → BSC XGeneralVerifier
 //    - Portal  → BSC Flap Portal
 //    - V4 PM   → 0x0 (Uniswap V4 not deployed on BSC; swapType=1 disabled)
-//  factorySpecVersion() returns "v2.2-bsc" to distinguish from Robinhood "v2.2".
+//
+//  LITE FEATURE SET (vs Robinhood):
+//    REMOVED to fit BSC's 24KB contract size limit (EIP-170):
+//      - Governance proposals / voting (createProposal, voteApproval, vote, tally, execute)
+//      - ecoEthPool (25% BNB reserve for governance was killed with governance)
+//      - X-proof admin actions: withdrawVaultTaxtokenByProof,
+//        setAirdropRoundByProof, executeProposalByProof
+//    KEPT:
+//      - 100% BNB->taxtoken buyback (no ecopool, more aggressive than Robinhood's 75%)
+//      - 2/3 taxtoken to vault reserve, 1/3 to staker dividend
+//      - Staking + dividend (1 day stake lock, no unstake cooldown)
+//      - Tweet-gated airdrops
+//      - X-controller proof buyback trigger (triggerBuybackByProof)
+//      - Emergency withdraw (ETH + token)
+//
+//  factorySpecVersion() returns "v2.2-bsc-lite" to distinguish from
+//  Robinhood "v2.2" and from a future full-feature "v2.2-bsc" if governance
+//  is restored via library refactor.
 //  _getVaultPortal() and _getGuardian() are chain-aware (already support BSC).
 // =====================================================================
 
@@ -89,11 +106,22 @@ contract BuybackVaultBscFactory is VaultFactoryBaseV2 {
     // ─── Events ───────────────────────────────────────────────────────────
     event CommissionWithdrawn(address indexed to, uint256 amount);
 
-    constructor() {
+    /**
+     * @notice Factory constructor — Beacon pattern.
+     * @param _implementation Address of a pre-deployed BuybackVaultBsc implementation.
+     *        Must be deployed separately because BSC's 24KB contract size limit
+     *        prevents the factory + implementation from fitting in a single init
+     *        code (the combined size is ~43KB).
+     * @dev    Deploy order:
+     *        1. Deploy BuybackVaultBsc implementation (constructor has no args)
+     *        2. Deploy BuybackVaultBscFactory with the impl address above
+     *        3. Register factory as Guardian/Portal in the Flap BSC config
+     */
+    constructor(address _implementation) {
+        require(_implementation != address(0), "Zero implementation");
         commissionRecipient = msg.sender;
         defaultProtocolCommissionReceiver = address(this);
-        BuybackVaultBsc impl = new BuybackVaultBsc();
-        beacon = address(new UpgradeableBeacon(address(impl), address(this)));
+        beacon = address(new UpgradeableBeacon(_implementation, address(this)));
     }
 
     // ─── newVault ─────────────────────────────────────────────────────────
@@ -135,7 +163,7 @@ contract BuybackVaultBscFactory is VaultFactoryBaseV2 {
     ///         Robinhood Chain ("v2.2") variant. The base spec is the same; the suffix
     ///         signals BSC-specific address overrides (PancakeSwap, WBNB, BSC Portal).
     function factorySpecVersion() public pure virtual override returns (string memory) {
-        return "v2.2-bsc";
+        return "v2.2-bsc-lite";
     }
 
     /// @notice Validates the launch params before the VaultPortal creates a token.
